@@ -1,0 +1,71 @@
+Build a modern, responsive web app named **"Client Ads Manager"** using **Next.js**, **React**, **TailwindCSS**, and **Framer Motion**. The purpose of this app is to help a digital marketing expert manage multiple Google Ads clients efficiently. The app should be clean, animated, scalable, and mobile-friendly.
+
+🔹 Tech Stack:
+- Next.js (App Router)
+- TailwindCSS for styling
+- Framer Motion for smooth animations
+- Optional: Firebase or Supabase for storage, auth, and backup
+- react-pdf or jsPDF for invoice generation
+- Zustand or Context API for state management
+
+🔹 App Features:
+
+1. **Dashboard View (Client List)**
+   - Show all clients in grid or table view
+   - Display: Name, Phone, Google Ad Account ID, Website, Monthly Service Charges, Summary of paid/unpaid status
+   - Add Search + Filter by name/month/payment status
+   - Each client card links to a detailed page
+
+2. **Client Detail Page (Tabbed Interface)**
+   - Tabs: Overview, Billing & Payments, Campaigns, Notes & Files, History
+   - Overview: Editable client info (phone, website, etc.)
+   - Billing & Payments:
+     - Show table of months (Jan to Dec)
+     - Toggle Paid/Unpaid per month
+     - Add payment date + amount
+     - Show calculated totals: How many months are paid/unpaid and amount due
+     - Editable monthly service charges per client
+   - Campaigns:
+     - Add campaign: Name, Platform, Start Date, Budget, Notes
+     - Optional: integrate with Google Ads API
+   - Notes & Files:
+     - Add internal notes per client
+     - Upload documents (briefs, PDFs, contracts)
+   - History:
+     - Show activity timeline (e.g., "Payment received", "Campaign started", etc.)
+
+3. **Smart Features**
+   - Reminders: Alert when website is near expiry or client unpaid for 2+ months
+   - Monthly invoice auto-generation (PDF download)
+   - One-click contact: Call, Email, WhatsApp from client card
+   - Auto-calculate totals and summaries per client
+
+4. **User Roles (Optional)**
+   - Admin: Full control
+   - Accountant: Billing only
+   - Assistant: View-only
+
+5. **Export/Import**
+   - Export client or billing data as CSV/Excel
+   - Import from Excel or Google Sheets
+
+6. **Backup & Storage**
+   - Store files in Firebase/Supabase
+   - Cloud backup of all client data
+
+🔹 UI/UX Requirements:
+- Modern, minimal dashboard-first design
+- Large padding, smooth rounded cards, shadows
+- Dark & light mode support
+- Sidebar navigation (Dashboard, Clients, Invoices, Settings)
+- Use Framer Motion for:
+   - Page transitions
+   - Card hover/click effects
+   - Modal open/close
+   - Table row animations
+
+🔹 Final Goal:
+Create a sleek, easy-to-use app where the marketer can add new clients, update billing month-by-month, track campaigns, generate invoices, and never forget which client paid or didn't.
+
+Make it scalable, fast, and easy to expand in future.
+
