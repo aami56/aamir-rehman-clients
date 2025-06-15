@@ -12,11 +12,11 @@ import {
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: ChartPie },
-  { name: "Clients", href: "/", icon: Users },
-  { name: "Campaigns", href: "/", icon: Megaphone },
-  { name: "Invoices", href: "/", icon: File },
-  { name: "Analytics", href: "/", icon: BarChart3 },
-  { name: "Settings", href: "/", icon: Settings },
+  { name: "Clients", href: "/clients", icon: Users },
+  { name: "Campaigns", href: "/campaigns", icon: Megaphone },
+  { name: "Invoices", href: "/invoices", icon: File },
+  { name: "Analytics", href: "/analytics", icon: BarChart3 },
+  { name: "Settings", href: "/settings", icon: Settings },
 ];
 
 export function Sidebar() {
