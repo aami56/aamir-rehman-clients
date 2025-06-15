@@ -134,6 +134,12 @@ export class MemStorage implements IStorage {
       id,
       createdAt: now,
       updatedAt: now,
+      website: insertClient.website || null,
+      industry: insertClient.industry || null,
+      googleAdAccountId: insertClient.googleAdAccountId || null,
+      contactPerson: insertClient.contactPerson || null,
+      address: insertClient.address || null,
+      notes: insertClient.notes || null,
     };
     this.clients.set(id, client);
 
@@ -217,6 +223,11 @@ export class MemStorage implements IStorage {
       ...insertBilling,
       id,
       createdAt: new Date(),
+      isPaid: insertBilling.isPaid ?? false,
+      paidDate: insertBilling.paidDate || null,
+      paymentMethod: insertBilling.paymentMethod || null,
+      invoiceNumber: insertBilling.invoiceNumber || null,
+      notes: insertBilling.notes || null,
     };
     this.billing.set(id, billing);
 

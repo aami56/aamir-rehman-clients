@@ -61,7 +61,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertClientSchema.parse(req.body);
       const client = await storage.createClient(validatedData);
       res.status(201).json(client);
-    } catch (error) {
+    } catch (error: any) {
       res.status(400).json({ message: "Invalid client data", error: error.message });
     }
   });
@@ -77,7 +77,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       res.json(client);
-    } catch (error) {
+    } catch (error: any) {
       res.status(400).json({ message: "Invalid client data", error: error.message });
     }
   });
