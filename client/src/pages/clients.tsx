@@ -23,7 +23,7 @@ export default function Clients() {
     queryKey: ["/api/clients"],
   });
 
-  const filteredClients = clients.filter((client: Client) => {
+  const filteredClients = (clients as Client[]).filter((client: Client) => {
     const matchesSearch = client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          client.email.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || client.status === statusFilter;

@@ -57,6 +57,7 @@ export default function Dashboard() {
     monthlyRevenue: 0,
     pendingPayments: 0,
     overdueClients: 0,
+    activeClients: 0,
   };
 
   return (

@@ -22,25 +22,37 @@ export default function Invoices() {
 
   // Get all billing records from all clients
   const getAllBilling = async () => {
-    const allBilling = [];
-    for (const client of clients) {
-      const response = await fetch(`/api/clients/${client.id}/billing`);
-      if (response.ok) {
-        const billing = await response.json();
-        allBilling.push(...billing.map((bill: Billing) => ({
-          ...bill,
-          clientName: client.name,
-          clientEmail: client.email,
-        })));
+    try {
+      const allBilling = [];
+      for (const client of (clients as any[])) {
+        try {
+          const response = await fetch(`/api/clients/${client.id}/billing`);
+          if (response.ok) {
+            const text = await response.text();
+            if (text) {
+              const billing = JSON.parse(text);
+              allBilling.push(...billing.map((bill: Billing) => ({
+                ...bill,
+                clientName: client.name,
+                clientEmail: client.email,
+              })));
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching billing for client ${client.id}:`, error);
+        }
       }
+      return allBilling;
+    } catch (error) {
+      console.error('Error in getAllBilling:', error);
+      return [];
     }
-    return allBilling;
   };
 
   const { data: invoices = [], isLoading } = useQuery({
     queryKey: ["/api/billing", clients],
     queryFn: getAllBilling,
-    enabled: clients.length > 0,
+    enabled: (clients as any[]).length > 0,
   });
 
   const filteredInvoices = invoices.filter((invoice: any) => {

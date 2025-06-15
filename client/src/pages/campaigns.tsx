@@ -22,24 +22,36 @@ export default function Campaigns() {
 
   // Get all campaigns from all clients
   const getAllCampaigns = async () => {
-    const allCampaigns = [];
-    for (const client of clients) {
-      const response = await fetch(`/api/clients/${client.id}/campaigns`);
-      if (response.ok) {
-        const campaigns = await response.json();
-        allCampaigns.push(...campaigns.map((campaign: Campaign) => ({
-          ...campaign,
-          clientName: client.name,
-        })));
+    try {
+      const allCampaigns = [];
+      for (const client of (clients as any[])) {
+        try {
+          const response = await fetch(`/api/clients/${client.id}/campaigns`);
+          if (response.ok) {
+            const text = await response.text();
+            if (text) {
+              const campaigns = JSON.parse(text);
+              allCampaigns.push(...campaigns.map((campaign: Campaign) => ({
+                ...campaign,
+                clientName: client.name,
+              })));
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching campaigns for client ${client.id}:`, error);
+        }
       }
+      return allCampaigns;
+    } catch (error) {
+      console.error('Error in getAllCampaigns:', error);
+      return [];
     }
-    return allCampaigns;
   };
 
   const { data: campaigns = [], isLoading } = useQuery({
     queryKey: ["/api/campaigns", clients],
     queryFn: getAllCampaigns,
-    enabled: clients.length > 0,
+    enabled: (clients as any[]).length > 0,
   });
 
   const filteredCampaigns = campaigns.filter((campaign: any) => {
@@ -50,7 +62,7 @@ export default function Campaigns() {
     return matchesSearch && matchesStatus && matchesPlatform;
   });
 
-  const platforms = [...new Set(campaigns.map((c: any) => c.platform))];
+  const platforms = Array.from(new Set(campaigns.map((c: any) => c.platform)));
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
