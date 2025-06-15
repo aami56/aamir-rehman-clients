@@ -5,7 +5,9 @@ import { Header } from "@/components/layout/header";
 import { StatsCards } from "@/components/dashboard/stats-cards";
 import { SearchFilters } from "@/components/dashboard/search-filters";
 import { ClientCard } from "@/components/dashboard/client-card";
+import { ClientForm } from "@/components/client/client-form";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus } from "lucide-react";
 import { debounce } from "@/lib/utils";
 import type { Client } from "@shared/schema";
@@ -13,6 +15,7 @@ import type { Client } from "@shared/schema";
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [showAddClient, setShowAddClient] = useState(false);
 
   // Fetch dashboard stats
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -40,8 +43,7 @@ export default function Dashboard() {
   );
 
   const handleAddClient = () => {
-    // TODO: Open add client modal/form
-    console.log("Add client clicked");
+    setShowAddClient(true);
   };
 
   const handleGenerateInvoices = () => {
@@ -148,6 +150,21 @@ export default function Dashboard() {
       >
         <Plus className="w-6 h-6" />
       </Button>
+
+      {/* Add Client Dialog */}
+      <Dialog open={showAddClient} onOpenChange={setShowAddClient}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add New Client</DialogTitle>
+          </DialogHeader>
+          <ClientForm
+            onSuccess={() => {
+              setShowAddClient(false);
+            }}
+            onCancel={() => setShowAddClient(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

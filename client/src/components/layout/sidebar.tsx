@@ -12,11 +12,11 @@ import {
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: ChartPie },
-  { name: "Clients", href: "/clients", icon: Users },
-  { name: "Campaigns", href: "/campaigns", icon: Megaphone },
-  { name: "Invoices", href: "/invoices", icon: File },
-  { name: "Analytics", href: "/analytics", icon: BarChart3 },
-  { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Clients", href: "/", icon: Users },
+  { name: "Campaigns", href: "/", icon: Megaphone },
+  { name: "Invoices", href: "/", icon: File },
+  { name: "Analytics", href: "/", icon: BarChart3 },
+  { name: "Settings", href: "/", icon: Settings },
 ];
 
 export function Sidebar() {
@@ -42,16 +42,14 @@ export function Sidebar() {
         {navigation.map((item) => {
           const isActive = location === item.href || (item.href === "/" && location === "/");
           return (
-            <Link key={item.name} href={item.href}>
-              <a className={cn(
-                "flex items-center space-x-3 px-4 py-3 rounded-xl font-medium transition-colors",
-                isActive
-                  ? "bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300"
-                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
-              )}>
-                <item.icon className="w-5 h-5" />
-                <span>{item.name}</span>
-              </a>
+            <Link key={item.name} href={item.href} className={cn(
+              "flex items-center space-x-3 px-4 py-3 rounded-xl font-medium transition-colors",
+              isActive
+                ? "bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300"
+                : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+            )}>
+              <item.icon className="w-5 h-5" />
+              <span>{item.name}</span>
             </Link>
           );
         })}
