@@ -134,6 +134,7 @@ export class MemStorage implements IStorage {
       id,
       createdAt: now,
       updatedAt: now,
+      status: insertClient.status || "active",
       website: insertClient.website || null,
       industry: insertClient.industry || null,
       googleAdAccountId: insertClient.googleAdAccountId || null,
@@ -323,6 +324,12 @@ export class MemStorage implements IStorage {
       id,
       createdAt: now,
       updatedAt: now,
+      status: insertCampaign.status || "active",
+      endDate: insertCampaign.endDate || null,
+      description: insertCampaign.description || null,
+      targetAudience: insertCampaign.targetAudience || null,
+      keywords: insertCampaign.keywords || null,
+      performance: insertCampaign.performance || {},
     };
     this.campaigns.set(id, campaign);
 
@@ -392,6 +399,10 @@ export class MemStorage implements IStorage {
       ...insertNote,
       id,
       createdAt: new Date(),
+      type: insertNote.type || null,
+      priority: insertNote.priority || null,
+      isCompleted: insertNote.isCompleted || null,
+      dueDate: insertNote.dueDate || null,
     };
     this.clientNotes.set(id, note);
 
@@ -460,6 +471,8 @@ export class MemStorage implements IStorage {
       ...insertFile,
       id,
       createdAt: new Date(),
+      description: insertFile.description || null,
+      uploadedBy: insertFile.uploadedBy || null,
     };
     this.clientFiles.set(id, file);
 
@@ -507,6 +520,9 @@ export class MemStorage implements IStorage {
       ...insertActivity,
       id,
       createdAt: new Date(),
+      entityType: insertActivity.entityType || null,
+      entityId: insertActivity.entityId || null,
+      metadata: insertActivity.metadata || {},
     };
     this.activityLog.set(id, activity);
     return activity;
