@@ -6,6 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar, DollarSign, Check, X, Plus, CreditCard, TrendingUp, AlertCircle, Banknote } from "lucide-react";
 import { formatCurrency, getMonthName } from "@/lib/utils";
 import { useCurrency } from "@/hooks/use-currency";
@@ -26,6 +29,9 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
   const [customAmount, setCustomAmount] = useState(defaultAmount);
   const [bulkAmount, setBulkAmount] = useState("");
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentMode, setPaymentMode] = useState<"auto" | "manual">("auto");
+  const [manualSelectedMonths, setManualSelectedMonths] = useState<{ month: number; year: number }[]>([]);
+  const [manualPaymentYear, setManualPaymentYear] = useState(new Date().getFullYear());
   const queryClient = useQueryClient();
   const { toast } = useToast();
   useCurrency();
@@ -212,6 +218,131 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
       isPaid: !billing.isPaid,
     });
   };
+
+  const toggleManualMonth = (month: number, year: number) => {
+    setManualSelectedMonths(prev => {
+      const exists = prev.find(m => m.month === month && m.year === year);
+      if (exists) {
+        return prev.filter(m => !(m.month === month && m.year === year));
+      }
+      return [...prev, { month, year }].sort((a, b) => 
+        a.year === b.year ? a.month - b.month : a.year - b.year
+      );
+    });
+  };
+
+  const handleManualPayment = async () => {
+    const amount = parseFloat(bulkAmount);
+    if (!amount || amount <= 0) {
+      toast({ title: "Error", description: "Please enter a valid amount", variant: "destructive" });
+      return;
+    }
+    
+    if (manualSelectedMonths.length === 0) {
+      toast({ title: "Error", description: "Please select at least one month", variant: "destructive" });
+      return;
+    }
+
+    let remainingAmount = amount;
+    const monthsProcessed: string[] = [];
+    
+    try {
+      for (const selected of manualSelectedMonths) {
+        if (remainingAmount <= 0) break;
+        
+        const existingBilling = billingData.find(b => b.month === selected.month && b.year === selected.year);
+        const alreadyPaid = existingBilling ? parseFloat(existingBilling.paidAmount || "0") : 0;
+        const monthTotal = existingBilling ? parseFloat(existingBilling.amount) : monthlyCharge;
+        const stillNeeded = monthTotal - alreadyPaid;
+        const monthName = `${getMonthName(selected.month).slice(0, 3)}'${String(selected.year).slice(-2)}`;
+        
+        if (remainingAmount >= stillNeeded) {
+          if (existingBilling) {
+            await apiRequest("PUT", `/api/billing/${existingBilling.id}`, {
+              isPaid: true,
+              paidAmount: monthTotal.toString(),
+              paidDate: new Date(paymentDate).toISOString(),
+            });
+          } else {
+            await apiRequest("POST", `/api/clients/${clientId}/billing`, {
+              month: selected.month,
+              year: selected.year,
+              amount: defaultAmount,
+              paidAmount: monthTotal.toString(),
+              isPaid: true,
+              paidDate: new Date(paymentDate).toISOString(),
+            });
+          }
+          remainingAmount -= stillNeeded;
+          monthsProcessed.push(monthName);
+        } else if (remainingAmount > 0) {
+          const newPaidAmount = alreadyPaid + remainingAmount;
+          if (existingBilling) {
+            await apiRequest("PUT", `/api/billing/${existingBilling.id}`, {
+              paidAmount: newPaidAmount.toString(),
+            });
+          } else {
+            await apiRequest("POST", `/api/clients/${clientId}/billing`, {
+              month: selected.month,
+              year: selected.year,
+              amount: defaultAmount,
+              paidAmount: newPaidAmount.toString(),
+              isPaid: false,
+            });
+          }
+          monthsProcessed.push(`${monthName} (partial)`);
+          remainingAmount = 0;
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: [`/api/clients/${clientId}/billing`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      
+      toast({
+        title: "Payment Applied",
+        description: `Applied to: ${monthsProcessed.join(", ")}${remainingAmount > 0 ? ` | Unused: ${formatCurrency(remainingAmount)}` : ''}`,
+      });
+      
+      setShowBulkPaymentDialog(false);
+      setBulkAmount("");
+      setManualSelectedMonths([]);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to apply payment", variant: "destructive" });
+    }
+  };
+
+  const manualPaymentPreview = useMemo(() => {
+    let amount = parseFloat(bulkAmount) || 0;
+    const monthsInfo: { name: string; amount: number; isPartial: boolean }[] = [];
+    let remaining = amount;
+    
+    for (const selected of manualSelectedMonths) {
+      if (remaining <= 0) break;
+      
+      const existingBilling = billingData.find(b => b.month === selected.month && b.year === selected.year);
+      const alreadyPaid = existingBilling ? parseFloat(existingBilling.paidAmount || "0") : 0;
+      const monthTotal = existingBilling ? parseFloat(existingBilling.amount) : monthlyCharge;
+      const stillNeeded = monthTotal - alreadyPaid;
+      const monthName = `${getMonthName(selected.month).slice(0, 3)}'${String(selected.year).slice(-2)}`;
+      
+      if (remaining >= stillNeeded) {
+        monthsInfo.push({ name: monthName, amount: stillNeeded, isPartial: false });
+        remaining -= stillNeeded;
+      } else {
+        monthsInfo.push({ name: monthName, amount: remaining, isPartial: true });
+        remaining = 0;
+      }
+    }
+    
+    const totalNeeded = manualSelectedMonths.reduce((sum, selected) => {
+      const existingBilling = billingData.find(b => b.month === selected.month && b.year === selected.year);
+      const alreadyPaid = existingBilling ? parseFloat(existingBilling.paidAmount || "0") : 0;
+      const monthTotal = existingBilling ? parseFloat(existingBilling.amount) : monthlyCharge;
+      return sum + (monthTotal - alreadyPaid);
+    }, 0);
+    
+    return { monthsInfo, remaining, totalNeeded };
+  }, [bulkAmount, manualSelectedMonths, billingData, monthlyCharge]);
 
   const bulkPaymentPreview = useMemo(() => {
     let amount = parseFloat(bulkAmount) || 0;
@@ -484,95 +615,212 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
       </Dialog>
 
       {/* Bulk Payment Dialog */}
-      <Dialog open={showBulkPaymentDialog} onOpenChange={setShowBulkPaymentDialog}>
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={showBulkPaymentDialog} onOpenChange={(open) => {
+        setShowBulkPaymentDialog(open);
+        if (!open) {
+          setManualSelectedMonths([]);
+          setPaymentMode("auto");
+        }
+      }}>
+        <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CreditCard className="w-5 h-5 text-emerald-500" />
               Add Payment
             </DialogTitle>
             <DialogDescription>
-              Enter the total amount received. It will be automatically distributed across unpaid months.
+              Choose to auto-distribute payment or manually select months.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-6 py-4">
-            <div className="bg-slate-100 dark:bg-slate-800 rounded-lg p-4">
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-slate-600 dark:text-slate-400">Monthly Charge:</span>
-                <span className="font-semibold">{formatCurrency(monthlyCharge)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600 dark:text-slate-400">Unpaid Months:</span>
-                <span className="font-semibold text-red-600">{unpaidPastMonths.length}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600 dark:text-slate-400">Available for advance:</span>
-                <span className="font-semibold text-blue-600">{futureMonths.length}</span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="bulkAmount">Payment Amount</Label>
-              <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  id="bulkAmount"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={bulkAmount}
-                  onChange={(e) => setBulkAmount(e.target.value)}
-                  className="pl-10 text-lg"
-                  placeholder="Enter amount received"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="paymentDate">Payment Date</Label>
-              <Input
-                id="paymentDate"
-                type="date"
-                value={paymentDate}
-                onChange={(e) => setPaymentDate(e.target.value)}
-              />
-            </div>
-
-            {parseFloat(bulkAmount) > 0 && (
-              <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4">
-                <h4 className="font-semibold text-emerald-700 dark:text-emerald-300 mb-2">Payment Preview</h4>
-                <div className="space-y-2 text-sm">
-                  {bulkPaymentPreview.monthsCount > 0 && (
-                    <div className="flex justify-between">
-                      <span>Months fully paid:</span>
-                      <span className="font-semibold">{bulkPaymentPreview.monthsCount}</span>
-                    </div>
-                  )}
-                  {bulkPaymentPreview.monthNames && (
-                    <div className="flex justify-between">
-                      <span>Applies to:</span>
-                      <span className="font-medium text-emerald-600">{bulkPaymentPreview.monthNames}</span>
-                    </div>
-                  )}
-                  {bulkPaymentPreview.partialMonth && (
-                    <div className="mt-2 pt-2 border-t border-emerald-200 dark:border-emerald-700">
-                      <div className="flex justify-between text-blue-600">
-                        <span>Next month ({bulkPaymentPreview.partialMonth.name}) will need:</span>
-                        <span className="font-semibold">{formatCurrency(bulkPaymentPreview.partialMonth.remaining)}</span>
-                      </div>
-                    </div>
-                  )}
+          <Tabs value={paymentMode} onValueChange={(v) => setPaymentMode(v as "auto" | "manual")} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="auto">Auto Distribute</TabsTrigger>
+              <TabsTrigger value="manual">Select Months</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="auto" className="space-y-4 pt-4">
+              <div className="bg-slate-100 dark:bg-slate-800 rounded-lg p-4">
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-slate-600 dark:text-slate-400">Monthly Charge:</span>
+                  <span className="font-semibold">{formatCurrency(monthlyCharge)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">Unpaid Months:</span>
+                  <span className="font-semibold text-red-600">{unpaidPastMonths.length}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">Available for advance:</span>
+                  <span className="font-semibold text-blue-600">{futureMonths.length}</span>
                 </div>
               </div>
-            )}
-          </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="bulkAmount">Payment Amount</Label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input
+                    id="bulkAmount"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={bulkAmount}
+                    onChange={(e) => setBulkAmount(e.target.value)}
+                    className="pl-10 text-lg"
+                    placeholder="Enter amount received"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="paymentDate">Payment Date</Label>
+                <Input
+                  id="paymentDate"
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                />
+              </div>
+
+              {parseFloat(bulkAmount) > 0 && (
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4">
+                  <h4 className="font-semibold text-emerald-700 dark:text-emerald-300 mb-2">Payment Preview</h4>
+                  <div className="space-y-2 text-sm">
+                    {bulkPaymentPreview.monthsCount > 0 && (
+                      <div className="flex justify-between">
+                        <span>Months fully paid:</span>
+                        <span className="font-semibold">{bulkPaymentPreview.monthsCount}</span>
+                      </div>
+                    )}
+                    {bulkPaymentPreview.monthNames && (
+                      <div className="flex justify-between">
+                        <span>Applies to:</span>
+                        <span className="font-medium text-emerald-600">{bulkPaymentPreview.monthNames}</span>
+                      </div>
+                    )}
+                    {bulkPaymentPreview.partialMonth && (
+                      <div className="mt-2 pt-2 border-t border-emerald-200 dark:border-emerald-700">
+                        <div className="flex justify-between text-blue-600">
+                          <span>Next month ({bulkPaymentPreview.partialMonth.name}) will need:</span>
+                          <span className="font-semibold">{formatCurrency(bulkPaymentPreview.partialMonth.remaining)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+            
+            <TabsContent value="manual" className="space-y-4 pt-4">
+              <div className="space-y-2">
+                <Label>Select Year</Label>
+                <Select value={manualPaymentYear.toString()} onValueChange={(v) => setManualPaymentYear(parseInt(v))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[currentYear - 1, currentYear, currentYear + 1, currentYear + 2].map(y => (
+                      <SelectItem key={y} value={y.toString()}>{y}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Select Months</Label>
+                <div className="grid grid-cols-4 gap-2">
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const month = i + 1;
+                    const isSelected = manualSelectedMonths.some(m => m.month === month && m.year === manualPaymentYear);
+                    const existingBilling = billingData.find(b => b.month === month && b.year === manualPaymentYear);
+                    const isPaid = existingBilling?.isPaid;
+                    
+                    return (
+                      <div
+                        key={month}
+                        onClick={() => !isPaid && toggleManualMonth(month, manualPaymentYear)}
+                        className={`p-2 text-center rounded-lg cursor-pointer transition-all text-sm ${
+                          isPaid
+                            ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 cursor-not-allowed'
+                            : isSelected 
+                              ? 'bg-blue-500 text-white shadow-md' 
+                              : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {getMonthName(month).slice(0, 3)}
+                        {isPaid && <Check className="w-3 h-3 inline ml-1" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {manualSelectedMonths.length > 0 && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    <span className="font-semibold">Selected: </span>
+                    {manualSelectedMonths.map(m => `${getMonthName(m.month).slice(0, 3)}'${String(m.year).slice(-2)}`).join(", ")}
+                  </p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    Total needed: {formatCurrency(manualPaymentPreview.totalNeeded)}
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="manualAmount">Payment Amount</Label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input
+                    id="manualAmount"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={bulkAmount}
+                    onChange={(e) => setBulkAmount(e.target.value)}
+                    className="pl-10 text-lg"
+                    placeholder="Enter amount received"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="manualPaymentDate">Payment Date</Label>
+                <Input
+                  id="manualPaymentDate"
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                />
+              </div>
+
+              {parseFloat(bulkAmount) > 0 && manualSelectedMonths.length > 0 && (
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4">
+                  <h4 className="font-semibold text-emerald-700 dark:text-emerald-300 mb-2">Payment Preview</h4>
+                  <div className="space-y-1 text-sm">
+                    {manualPaymentPreview.monthsInfo.map((m, i) => (
+                      <div key={i} className="flex justify-between">
+                        <span>{m.name}{m.isPartial ? ' (partial)' : ''}:</span>
+                        <span className="font-semibold">{formatCurrency(m.amount)}</span>
+                      </div>
+                    ))}
+                    {manualPaymentPreview.remaining > 0 && (
+                      <div className="flex justify-between text-amber-600 pt-2 border-t border-emerald-200">
+                        <span>Unused amount:</span>
+                        <span className="font-semibold">{formatCurrency(manualPaymentPreview.remaining)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBulkPaymentDialog(false)}>Cancel</Button>
             <Button 
-              onClick={handleBulkPayment} 
-              disabled={!bulkAmount || parseFloat(bulkAmount) <= 0}
+              onClick={paymentMode === "auto" ? handleBulkPayment : handleManualPayment} 
+              disabled={!bulkAmount || parseFloat(bulkAmount) <= 0 || (paymentMode === "manual" && manualSelectedMonths.length === 0)}
               className="bg-emerald-500 hover:bg-emerald-600"
             >
               Apply Payment
