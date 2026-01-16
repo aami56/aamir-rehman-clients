@@ -93,14 +93,16 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
     });
   }, [billingData, selectedYear, currentMonth, currentYear]);
 
-  const unpaidMonths = yearlyBilling.filter(m => m.isCurrentOrPast && (!m.billing || !m.billing.isPaid));
+  const unpaidPastMonths = yearlyBilling.filter(m => m.isCurrentOrPast && (!m.billing || !m.billing.isPaid));
+  const futureMonths = yearlyBilling.filter(m => !m.isCurrentOrPast && (!m.billing || !m.billing.isPaid));
+  const allUnpaidMonths = [...unpaidPastMonths, ...futureMonths];
   const paidMonths = yearlyBilling.filter(m => m.billing?.isPaid);
   
   const totalPaid = billingData
     .filter(b => b.year === selectedYear && b.isPaid)
     .reduce((sum, b) => sum + parseFloat(b.amount), 0);
 
-  const totalUnpaid = unpaidMonths.reduce((sum, m) => {
+  const totalUnpaid = unpaidPastMonths.reduce((sum, m) => {
     if (m.billing && !m.billing.isPaid) {
       return sum + parseFloat(m.billing.amount);
     } else if (!m.billing && m.isCurrentOrPast) {
@@ -138,10 +140,10 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
       return;
     }
 
-    const unpaidMonthsToProcess = unpaidMonths.slice(0, monthsToPayFor);
+    const monthsToProcess = allUnpaidMonths.slice(0, monthsToPayFor);
     
     try {
-      for (const monthData of unpaidMonthsToProcess) {
+      for (const monthData of monthsToProcess) {
         if (monthData.billing) {
           await apiRequest("PUT", `/api/billing/${monthData.billing.id}`, {
             isPaid: true,
@@ -164,7 +166,7 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
       const remainder = amount % monthlyCharge;
       toast({
         title: "Payment Applied",
-        description: `${monthsToPayFor} month(s) marked as paid. ${remainder > 0 ? `Remaining: ${formatCurrency(remainder)}` : ''}`,
+        description: `${monthsToProcess.length} month(s) marked as paid. ${remainder > 0 ? `Remaining: ${formatCurrency(remainder)}` : ''}`,
       });
       
       setShowBulkPaymentDialog(false);
@@ -185,9 +187,10 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
     const amount = parseFloat(bulkAmount) || 0;
     const monthsCount = Math.floor(amount / monthlyCharge);
     const remainder = amount % monthlyCharge;
-    const monthNames = unpaidMonths.slice(0, monthsCount).map(m => `${m.monthName.slice(0, 3)}`).join(", ");
-    return { monthsCount, remainder, monthNames };
-  }, [bulkAmount, monthlyCharge, unpaidMonths]);
+    const monthsToShow = allUnpaidMonths.slice(0, monthsCount);
+    const monthNames = monthsToShow.map(m => `${m.monthName.slice(0, 3)}'${String(m.year).slice(-2)}`).join(", ");
+    return { monthsCount, remainder, monthNames, monthsToShow };
+  }, [bulkAmount, monthlyCharge, allUnpaidMonths]);
 
   if (isLoading) {
     return (
@@ -257,7 +260,7 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wide">Unpaid</p>
-                <p className="text-2xl font-bold text-amber-700 dark:text-amber-300 mt-1">{unpaidMonths.length}</p>
+                <p className="text-2xl font-bold text-amber-700 dark:text-amber-300 mt-1">{unpaidPastMonths.length}</p>
               </div>
               <div className="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center">
                 <Calendar className="w-5 h-5 text-amber-600" />
@@ -430,7 +433,11 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-slate-600 dark:text-slate-400">Unpaid Months:</span>
-                <span className="font-semibold text-red-600">{unpaidMonths.length}</span>
+                <span className="font-semibold text-red-600">{unpaidPastMonths.length}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600 dark:text-slate-400">Available for advance:</span>
+                <span className="font-semibold text-blue-600">{futureMonths.length}</span>
               </div>
             </div>
 
