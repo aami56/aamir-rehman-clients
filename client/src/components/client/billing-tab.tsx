@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Calendar, DollarSign, Check, X, Plus } from "lucide-react";
-import { formatCurrency, getMonthName, getCurrentMonthYear, getPaymentStatusBadgeClass } from "@/lib/utils";
+import { Calendar, DollarSign, Check, X, Plus, CreditCard, TrendingUp, AlertCircle, Banknote } from "lucide-react";
+import { formatCurrency, getMonthName } from "@/lib/utils";
 import { useCurrency } from "@/hooks/use-currency";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -21,11 +21,16 @@ interface BillingTabProps {
 export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps) {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showBulkPaymentDialog, setShowBulkPaymentDialog] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState(defaultAmount);
+  const [bulkAmount, setBulkAmount] = useState("");
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   useCurrency();
+
+  const monthlyCharge = parseFloat(defaultAmount) || 1500;
 
   const { data: billingData = [], isLoading } = useQuery<Billing[]>({
     queryKey: [`/api/clients/${clientId}/billing`],
@@ -42,75 +47,67 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/clients/${clientId}/billing`] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({
-        title: "Success",
-        description: "Payment status updated successfully",
-      });
+      toast({ title: "Success", description: "Payment status updated" });
     },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update payment status",
-        variant: "destructive",
-      });
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to update", variant: "destructive" });
     },
   });
 
   const createBillingMutation = useMutation({
-    mutationFn: async ({ month, year, amount }: { month: number; year: number; amount: string }) => {
+    mutationFn: async ({ month, year, amount, isPaid, paidDate }: { month: number; year: number; amount: string; isPaid?: boolean; paidDate?: string }) => {
       const response = await apiRequest("POST", `/api/clients/${clientId}/billing`, {
         month,
         year,
         amount,
-        isPaid: false,
+        isPaid: isPaid || false,
+        paidDate: paidDate ? new Date(paidDate).toISOString() : null,
       });
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/clients/${clientId}/billing`] });
-      toast({
-        title: "Success",
-        description: "Billing record created successfully",
-      });
+      toast({ title: "Success", description: "Billing record created" });
     },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create billing record",
-        variant: "destructive",
-      });
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to create", variant: "destructive" });
     },
   });
 
-  // Generate billing data for the selected year
-  const yearlyBilling = Array.from({ length: 12 }, (_, index) => {
-    const month = index + 1;
-    const existing = billingData.find(b => b.month === month && b.year === selectedYear);
-    return {
-      month,
-      year: selectedYear,
-      monthName: getMonthName(month),
-      billing: existing || null,
-    };
-  });
+  const currentMonth = new Date().getMonth() + 1;
+  const currentYear = new Date().getFullYear();
 
+  const yearlyBilling = useMemo(() => {
+    return Array.from({ length: 12 }, (_, index) => {
+      const month = index + 1;
+      const existing = billingData.find(b => b.month === month && b.year === selectedYear);
+      const isCurrentOrPast = selectedYear < currentYear || (selectedYear === currentYear && month <= currentMonth);
+      
+      return {
+        month,
+        year: selectedYear,
+        monthName: getMonthName(month),
+        billing: existing || null,
+        isCurrentOrPast,
+      };
+    });
+  }, [billingData, selectedYear, currentMonth, currentYear]);
+
+  const unpaidMonths = yearlyBilling.filter(m => m.isCurrentOrPast && (!m.billing || !m.billing.isPaid));
+  const paidMonths = yearlyBilling.filter(m => m.billing?.isPaid);
+  
   const totalPaid = billingData
     .filter(b => b.year === selectedYear && b.isPaid)
     .reduce((sum, b) => sum + parseFloat(b.amount), 0);
 
-  const totalUnpaid = billingData
-    .filter(b => b.year === selectedYear && !b.isPaid)
-    .reduce((sum, b) => sum + parseFloat(b.amount), 0);
-
-  const paidMonths = billingData.filter(b => b.year === selectedYear && b.isPaid).length;
-  const unpaidMonths = billingData.filter(b => b.year === selectedYear && !b.isPaid).length;
-
-  const handleTogglePayment = (billing: Billing) => {
-    togglePaymentMutation.mutate({
-      billingId: billing.id,
-      isPaid: !billing.isPaid,
-    });
-  };
+  const totalUnpaid = unpaidMonths.reduce((sum, m) => {
+    if (m.billing && !m.billing.isPaid) {
+      return sum + parseFloat(m.billing.amount);
+    } else if (!m.billing && m.isCurrentOrPast) {
+      return sum + monthlyCharge;
+    }
+    return sum;
+  }, 0);
 
   const openAddBillingDialog = (month: number) => {
     setSelectedMonth(month);
@@ -120,7 +117,6 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
 
   const handleCreateBilling = () => {
     if (selectedMonth === null) return;
-    
     createBillingMutation.mutate({
       month: selectedMonth,
       year: selectedYear,
@@ -129,28 +125,81 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
     setShowAddDialog(false);
   };
 
+  const handleBulkPayment = async () => {
+    const amount = parseFloat(bulkAmount);
+    if (!amount || amount <= 0) {
+      toast({ title: "Error", description: "Please enter a valid amount", variant: "destructive" });
+      return;
+    }
+
+    const monthsToPayFor = Math.floor(amount / monthlyCharge);
+    if (monthsToPayFor === 0) {
+      toast({ title: "Error", description: `Amount must be at least ${formatCurrency(monthlyCharge)} to cover one month`, variant: "destructive" });
+      return;
+    }
+
+    const unpaidMonthsToProcess = unpaidMonths.slice(0, monthsToPayFor);
+    
+    try {
+      for (const monthData of unpaidMonthsToProcess) {
+        if (monthData.billing) {
+          await apiRequest("PUT", `/api/billing/${monthData.billing.id}`, {
+            isPaid: true,
+            paidDate: new Date(paymentDate).toISOString(),
+          });
+        } else {
+          await apiRequest("POST", `/api/clients/${clientId}/billing`, {
+            month: monthData.month,
+            year: monthData.year,
+            amount: defaultAmount,
+            isPaid: true,
+            paidDate: new Date(paymentDate).toISOString(),
+          });
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: [`/api/clients/${clientId}/billing`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      
+      const remainder = amount % monthlyCharge;
+      toast({
+        title: "Payment Applied",
+        description: `${monthsToPayFor} month(s) marked as paid. ${remainder > 0 ? `Remaining: ${formatCurrency(remainder)}` : ''}`,
+      });
+      
+      setShowBulkPaymentDialog(false);
+      setBulkAmount("");
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to apply payment", variant: "destructive" });
+    }
+  };
+
+  const handleTogglePayment = (billing: Billing) => {
+    togglePaymentMutation.mutate({
+      billingId: billing.id,
+      isPaid: !billing.isPaid,
+    });
+  };
+
+  const bulkPaymentPreview = useMemo(() => {
+    const amount = parseFloat(bulkAmount) || 0;
+    const monthsCount = Math.floor(amount / monthlyCharge);
+    const remainder = amount % monthlyCharge;
+    const monthNames = unpaidMonths.slice(0, monthsCount).map(m => `${m.monthName.slice(0, 3)}`).join(", ");
+    return { monthsCount, remainder, monthNames };
+  }, [bulkAmount, monthlyCharge, unpaidMonths]);
+
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="space-y-6 animate-pulse">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i} className="animate-pulse">
-              <CardContent className="p-6">
-                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-16 mb-2"></div>
-                <div className="h-8 bg-slate-300 dark:bg-slate-600 rounded w-20"></div>
-              </CardContent>
-            </Card>
+            <div key={i} className="h-24 bg-slate-200 dark:bg-slate-700 rounded-xl"></div>
           ))}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
           {Array.from({ length: 12 }).map((_, i) => (
-            <Card key={i} className="animate-pulse">
-              <CardContent className="p-4">
-                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-16 mb-4"></div>
-                <div className="h-6 bg-slate-300 dark:bg-slate-600 rounded w-12 mb-2"></div>
-                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-20"></div>
-              </CardContent>
-            </Card>
+            <div key={i} className="h-32 bg-slate-200 dark:bg-slate-700 rounded-xl"></div>
           ))}
         </div>
       </div>
@@ -159,149 +208,184 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
 
   return (
     <div className="space-y-6">
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-2">
-              <DollarSign className="w-5 h-5 text-emerald-600" />
+      {/* Summary Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900/20 dark:to-emerald-800/20 border-emerald-200 dark:border-emerald-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">Total Paid</p>
-                <p className="text-2xl font-bold text-emerald-600">{formatCurrency(totalPaid)}</p>
+                <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Total Paid</p>
+                <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300 mt-1">{formatCurrency(totalPaid)}</p>
+              </div>
+              <div className="w-10 h-10 bg-emerald-500/20 rounded-full flex items-center justify-center">
+                <Check className="w-5 h-5 text-emerald-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-2">
-              <X className="w-5 h-5 text-red-600" />
+        <Card className="bg-gradient-to-br from-red-50 to-red-100 dark:from-red-900/20 dark:to-red-800/20 border-red-200 dark:border-red-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">Total Unpaid</p>
-                <p className="text-2xl font-bold text-red-600">{formatCurrency(totalUnpaid)}</p>
+                <p className="text-xs font-medium text-red-600 dark:text-red-400 uppercase tracking-wide">Outstanding</p>
+                <p className="text-2xl font-bold text-red-700 dark:text-red-300 mt-1">{formatCurrency(totalUnpaid)}</p>
+              </div>
+              <div className="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center">
+                <AlertCircle className="w-5 h-5 text-red-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-2">
-              <Check className="w-5 h-5 text-emerald-600" />
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 border-blue-200 dark:border-blue-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">Paid Months</p>
-                <p className="text-2xl font-bold text-slate-900 dark:text-white">{paidMonths}</p>
+                <p className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">Paid Months</p>
+                <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-1">{paidMonths.length}</p>
+              </div>
+              <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-blue-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-2">
-              <Calendar className="w-5 h-5 text-amber-600" />
+        <Card className="bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-900/20 dark:to-amber-800/20 border-amber-200 dark:border-amber-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">Unpaid Months</p>
-                <p className="text-2xl font-bold text-slate-900 dark:text-white">{unpaidMonths}</p>
+                <p className="text-xs font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wide">Unpaid</p>
+                <p className="text-2xl font-bold text-amber-700 dark:text-amber-300 mt-1">{unpaidMonths.length}</p>
+              </div>
+              <div className="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center">
+                <Calendar className="w-5 h-5 text-amber-600" />
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Year Selector */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-          Monthly Billing - {selectedYear}
-        </h3>
-        <div className="flex items-center space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSelectedYear(selectedYear - 1)}
-          >
-            {selectedYear - 1}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSelectedYear(selectedYear + 1)}
-          >
-            {selectedYear + 1}
-          </Button>
+      {/* Actions Bar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4">
+        <div className="flex items-center gap-4">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+            Billing - {selectedYear}
+          </h3>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={() => setSelectedYear(selectedYear - 1)}>
+              ← {selectedYear - 1}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedYear(selectedYear + 1)}>
+              {selectedYear + 1} →
+            </Button>
+          </div>
         </div>
+        
+        <Button 
+          onClick={() => setShowBulkPaymentDialog(true)}
+          className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-lg"
+        >
+          <Banknote className="w-4 h-4 mr-2" />
+          Add Payment
+        </Button>
       </div>
 
-      {/* Monthly Billing Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {yearlyBilling.map(({ month, monthName, billing }) => (
-          <Card key={month} className="hover-lift transition-all duration-200">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  {monthName}
-                </CardTitle>
-                {billing ? (
-                  <Badge className={getPaymentStatusBadgeClass(billing.isPaid)}>
-                    {billing.isPaid ? "Paid" : "Unpaid"}
-                  </Badge>
-                ) : (
-                  <Badge variant="outline">No Record</Badge>
+      {/* Monthly Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        {yearlyBilling.map(({ month, monthName, billing, isCurrentOrPast }) => {
+          const isPaid = billing?.isPaid;
+          const isFuture = !isCurrentOrPast;
+          
+          return (
+            <Card 
+              key={month} 
+              className={`relative overflow-hidden transition-all duration-200 hover:shadow-lg ${
+                isPaid 
+                  ? 'bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-slate-800 border-emerald-300 dark:border-emerald-700' 
+                  : isFuture 
+                    ? 'bg-slate-50 dark:bg-slate-800/30 border-slate-200 dark:border-slate-700 opacity-60'
+                    : 'bg-gradient-to-br from-red-50 to-white dark:from-red-900/20 dark:to-slate-800 border-red-300 dark:border-red-700'
+              }`}
+            >
+              {isPaid && (
+                <div className="absolute top-0 right-0 w-0 h-0 border-t-[40px] border-t-emerald-500 border-l-[40px] border-l-transparent">
+                  <Check className="absolute -top-[32px] right-[4px] w-4 h-4 text-white" />
+                </div>
+              )}
+              
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                    {monthName.slice(0, 3)}
+                  </span>
+                  {isPaid ? (
+                    <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300 text-xs">
+                      Paid
+                    </Badge>
+                  ) : isFuture ? (
+                    <Badge variant="outline" className="text-xs">Future</Badge>
+                  ) : (
+                    <Badge className="bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 text-xs">
+                      Unpaid
+                    </Badge>
+                  )}
+                </div>
+                
+                <p className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                  {billing ? formatCurrency(billing.amount) : formatCurrency(monthlyCharge)}
+                </p>
+                
+                {billing?.isPaid && billing.paidDate && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2">
+                    {new Date(billing.paidDate).toLocaleDateString()}
+                  </p>
                 )}
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0">
-              {billing ? (
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-lg font-bold text-slate-900 dark:text-white">
-                      {formatCurrency(billing.amount)}
-                    </p>
-                    {billing.isPaid && billing.paidDate && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Paid: {new Date(billing.paidDate).toLocaleDateString()}
-                      </p>
+                
+                {!isFuture && (
+                  <div className="mt-2">
+                    {billing ? (
+                      <Button
+                        variant={billing.isPaid ? "outline" : "default"}
+                        size="sm"
+                        className={`w-full text-xs ${billing.isPaid ? '' : 'bg-emerald-500 hover:bg-emerald-600'}`}
+                        onClick={() => handleTogglePayment(billing)}
+                        disabled={togglePaymentMutation.isPending}
+                      >
+                        {billing.isPaid ? "Undo" : "Mark Paid"}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full text-xs"
+                        onClick={() => openAddBillingDialog(month)}
+                      >
+                        <Plus className="w-3 h-3 mr-1" />
+                        Add
+                      </Button>
                     )}
                   </div>
-                  <Button
-                    variant={billing.isPaid ? "destructive" : "default"}
-                    size="sm"
-                    className="w-full"
-                    onClick={() => handleTogglePayment(billing)}
-                    disabled={togglePaymentMutation.isPending}
-                  >
-                    {billing.isPaid ? "Mark Unpaid" : "Mark Paid"}
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => openAddBillingDialog(month)}
-                  disabled={createBillingMutation.isPending}
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  Add Billing
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        ))}
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
-      {/* Add Billing Dialog */}
+      {/* Add Single Billing Dialog */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              Add Billing - {selectedMonth ? getMonthName(selectedMonth) : ""} {selectedYear}
-            </DialogTitle>
+            <DialogTitle>Add Billing Record</DialogTitle>
+            <DialogDescription>
+              {selectedMonth ? getMonthName(selectedMonth) : ""} {selectedYear}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="amount">Payment Amount</Label>
+              <Label htmlFor="amount">Amount</Label>
               <div className="relative">
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input
@@ -312,23 +396,104 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
                   value={customAmount}
                   onChange={(e) => setCustomAmount(e.target.value)}
                   className="pl-10"
-                  placeholder="Enter amount"
                 />
               </div>
-              <p className="text-sm text-slate-500">
-                Preview: {formatCurrency(parseFloat(customAmount) || 0)}
-              </p>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-              Cancel
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+            <Button onClick={handleCreateBilling} disabled={!customAmount || createBillingMutation.isPending}>
+              Add Billing
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Payment Dialog */}
+      <Dialog open={showBulkPaymentDialog} onOpenChange={setShowBulkPaymentDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-emerald-500" />
+              Add Payment
+            </DialogTitle>
+            <DialogDescription>
+              Enter the total amount received. It will be automatically distributed across unpaid months.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            <div className="bg-slate-100 dark:bg-slate-800 rounded-lg p-4">
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-slate-600 dark:text-slate-400">Monthly Charge:</span>
+                <span className="font-semibold">{formatCurrency(monthlyCharge)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600 dark:text-slate-400">Unpaid Months:</span>
+                <span className="font-semibold text-red-600">{unpaidMonths.length}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="bulkAmount">Payment Amount</Label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  id="bulkAmount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={bulkAmount}
+                  onChange={(e) => setBulkAmount(e.target.value)}
+                  className="pl-10 text-lg"
+                  placeholder="Enter amount received"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="paymentDate">Payment Date</Label>
+              <Input
+                id="paymentDate"
+                type="date"
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+              />
+            </div>
+
+            {parseFloat(bulkAmount) > 0 && (
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4">
+                <h4 className="font-semibold text-emerald-700 dark:text-emerald-300 mb-2">Payment Preview</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span>Months to be paid:</span>
+                    <span className="font-semibold">{bulkPaymentPreview.monthsCount}</span>
+                  </div>
+                  {bulkPaymentPreview.monthNames && (
+                    <div className="flex justify-between">
+                      <span>Months:</span>
+                      <span className="font-medium text-emerald-600">{bulkPaymentPreview.monthNames}</span>
+                    </div>
+                  )}
+                  {bulkPaymentPreview.remainder > 0 && (
+                    <div className="flex justify-between text-amber-600">
+                      <span>Remaining balance:</span>
+                      <span className="font-semibold">{formatCurrency(bulkPaymentPreview.remainder)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkPaymentDialog(false)}>Cancel</Button>
             <Button 
-              onClick={handleCreateBilling}
-              disabled={!customAmount || createBillingMutation.isPending}
+              onClick={handleBulkPayment} 
+              disabled={!bulkAmount || parseFloat(bulkAmount) < monthlyCharge}
+              className="bg-emerald-500 hover:bg-emerald-600"
             >
-              {createBillingMutation.isPending ? "Adding..." : "Add Billing"}
+              Apply Payment
             </Button>
           </DialogFooter>
         </DialogContent>

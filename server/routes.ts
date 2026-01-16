@@ -111,13 +111,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/clients/:clientId/billing", async (req, res) => {
     try {
       const clientId = parseInt(req.params.clientId);
-      const validatedData = insertBillingSchema.parse({
-        ...req.body,
-        clientId,
-      });
+      const body = { ...req.body, clientId };
+      
+      if (body.paidDate && typeof body.paidDate === 'string') {
+        body.paidDate = new Date(body.paidDate);
+      }
+      
+      const validatedData = insertBillingSchema.parse(body);
       const billing = await storage.createBilling(validatedData);
       res.status(201).json(billing);
-    } catch (error) {
+    } catch (error: any) {
       res.status(400).json({ message: "Invalid billing data", error: error.message });
     }
   });
