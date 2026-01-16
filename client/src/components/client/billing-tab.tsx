@@ -3,20 +3,29 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Calendar, DollarSign, Check, X, Plus } from "lucide-react";
 import { formatCurrency, getMonthName, getCurrentMonthYear, getPaymentStatusBadgeClass } from "@/lib/utils";
+import { useCurrency } from "@/hooks/use-currency";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Billing } from "@shared/schema";
 
 interface BillingTabProps {
   clientId: number;
+  defaultAmount?: string;
 }
 
-export function BillingTab({ clientId }: BillingTabProps) {
+export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps) {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [customAmount, setCustomAmount] = useState(defaultAmount);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  useCurrency();
 
   const { data: billingData = [], isLoading } = useQuery<Billing[]>({
     queryKey: [`/api/clients/${clientId}/billing`],
@@ -103,13 +112,21 @@ export function BillingTab({ clientId }: BillingTabProps) {
     });
   };
 
-  const handleCreateBilling = (month: number) => {
-    // For demo purposes, using a default amount - in real app, this would come from client's monthly charge
+  const openAddBillingDialog = (month: number) => {
+    setSelectedMonth(month);
+    setCustomAmount(defaultAmount);
+    setShowAddDialog(true);
+  };
+
+  const handleCreateBilling = () => {
+    if (selectedMonth === null) return;
+    
     createBillingMutation.mutate({
-      month,
+      month: selectedMonth,
       year: selectedYear,
-      amount: "1500.00", // This should come from client data
+      amount: customAmount,
     });
+    setShowAddDialog(false);
   };
 
   if (isLoading) {
@@ -262,7 +279,7 @@ export function BillingTab({ clientId }: BillingTabProps) {
                   variant="outline"
                   size="sm"
                   className="w-full"
-                  onClick={() => handleCreateBilling(month)}
+                  onClick={() => openAddBillingDialog(month)}
                   disabled={createBillingMutation.isPending}
                 >
                   <Plus className="w-4 h-4 mr-1" />
@@ -273,6 +290,49 @@ export function BillingTab({ clientId }: BillingTabProps) {
           </Card>
         ))}
       </div>
+
+      {/* Add Billing Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Add Billing - {selectedMonth ? getMonthName(selectedMonth) : ""} {selectedYear}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="amount">Payment Amount</Label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  id="amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={customAmount}
+                  onChange={(e) => setCustomAmount(e.target.value)}
+                  className="pl-10"
+                  placeholder="Enter amount"
+                />
+              </div>
+              <p className="text-sm text-slate-500">
+                Preview: {formatCurrency(parseFloat(customAmount) || 0)}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleCreateBilling}
+              disabled={!customAmount || createBillingMutation.isPending}
+            >
+              {createBillingMutation.isPending ? "Adding..." : "Add Billing"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

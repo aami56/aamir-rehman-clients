@@ -290,7 +290,7 @@ export default function ClientDetail() {
                     </TabsContent>
 
                     <TabsContent value="billing" className="mt-0">
-                      <BillingTab clientId={clientId} />
+                      <BillingTab clientId={clientId} defaultAmount={client?.monthlyServiceCharge || "1500"} />
                     </TabsContent>
 
                     <TabsContent value="campaigns" className="mt-0">
