@@ -5,12 +5,31 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$",
+  PKR: "₨",
+  EUR: "€",
+  GBP: "£",
+  INR: "₹",
+  AED: "د.إ",
+  SAR: "﷼",
+  CAD: "C$",
+  AUD: "A$",
+  CNY: "¥",
+};
+
+export function getSavedCurrency(): { code: string; symbol: string } {
+  const saved = localStorage.getItem("currency") || "USD";
+  return {
+    code: saved,
+    symbol: CURRENCY_SYMBOLS[saved] || "$",
+  };
+}
+
 export function formatCurrency(amount: string | number): string {
   const num = typeof amount === 'string' ? parseFloat(amount) : amount;
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(num);
+  const { symbol } = getSavedCurrency();
+  return `${symbol}${num.toLocaleString()}`;
 }
 
 export function formatDate(date: Date | string): string {

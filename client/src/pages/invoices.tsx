@@ -9,9 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Download, Send, DollarSign, Calendar, FileText } from "lucide-react";
 import { formatCurrency, formatDate, getPaymentStatusBadgeClass, getCurrentMonthYear, getMonthName } from "@/lib/utils";
+import { useCurrency } from "@/hooks/use-currency";
 import type { Billing, Client } from "@shared/schema";
 
 export default function Invoices() {
+  useCurrency();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");

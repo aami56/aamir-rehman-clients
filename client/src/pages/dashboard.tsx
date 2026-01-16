@@ -57,7 +57,6 @@ export default function Dashboard() {
     monthlyRevenue: 0,
     pendingPayments: 0,
     overdueClients: 0,
-    activeClients: 0,
   };
 
   return (
@@ -71,7 +70,7 @@ export default function Dashboard() {
         />
         
         <div className="p-8">
-          <StatsCards stats={stats || defaultStats} />
+          <StatsCards stats={{ ...defaultStats, ...(stats as any) }} />
           
           <SearchFilters
             searchQuery={searchQuery}

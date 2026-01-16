@@ -1,6 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Users, Megaphone, DollarSign, AlertTriangle, TrendingUp } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { useCurrency } from "@/hooks/use-currency";
 
 interface StatsCardsProps {
   stats: {
@@ -13,6 +14,8 @@ interface StatsCardsProps {
 }
 
 export function StatsCards({ stats }: StatsCardsProps) {
+  useCurrency();
+  
   const cards = [
     {
       title: "Total Clients",

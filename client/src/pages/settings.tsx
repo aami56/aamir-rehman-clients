@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,9 +7,45 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Settings as SettingsIcon, User, Bell, Palette, Database } from "lucide-react";
+import { Settings as SettingsIcon, User, Bell, Palette, Database, DollarSign } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/utils";
+
+export const CURRENCIES = [
+  { code: "USD", symbol: "$", name: "US Dollar" },
+  { code: "PKR", symbol: "₨", name: "Pakistani Rupee" },
+  { code: "EUR", symbol: "€", name: "Euro" },
+  { code: "GBP", symbol: "£", name: "British Pound" },
+  { code: "INR", symbol: "₹", name: "Indian Rupee" },
+  { code: "AED", symbol: "د.إ", name: "UAE Dirham" },
+  { code: "SAR", symbol: "﷼", name: "Saudi Riyal" },
+  { code: "CAD", symbol: "C$", name: "Canadian Dollar" },
+  { code: "AUD", symbol: "A$", name: "Australian Dollar" },
+  { code: "CNY", symbol: "¥", name: "Chinese Yuan" },
+];
+
+export function getCurrencyInfo() {
+  const saved = localStorage.getItem("currency");
+  return CURRENCIES.find(c => c.code === saved) || CURRENCIES[0];
+}
 
 export default function Settings() {
+  const { toast } = useToast();
+  const [currency, setCurrency] = useState(() => {
+    const saved = localStorage.getItem("currency");
+    return saved || "USD";
+  });
+
+  const handleCurrencyChange = (value: string) => {
+    setCurrency(value);
+    localStorage.setItem("currency", value);
+    toast({
+      title: "Currency Updated",
+      description: `Currency changed to ${CURRENCIES.find(c => c.code === value)?.name}`,
+    });
+    window.dispatchEvent(new Event("currencyChange"));
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
       <Sidebar />
@@ -109,19 +146,44 @@ export default function Settings() {
                     </SelectContent>
                   </Select>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Currency Settings */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="w-5 h-5" />
+                  Currency Settings
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <div>
                   <Label htmlFor="currency">Default Currency</Label>
-                  <Select defaultValue="USD">
-                    <SelectTrigger>
-                      <SelectValue />
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+                    Select your preferred currency for billing and invoices
+                  </p>
+                  <Select value={currency} onValueChange={handleCurrencyChange}>
+                    <SelectTrigger className="w-full md:w-[300px]">
+                      <SelectValue placeholder="Select currency" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="USD">USD ($)</SelectItem>
-                      <SelectItem value="EUR">EUR (€)</SelectItem>
-                      <SelectItem value="GBP">GBP (£)</SelectItem>
-                      <SelectItem value="PKR">PKR (₨)</SelectItem>
+                      {CURRENCIES.map((curr) => (
+                        <SelectItem key={curr.code} value={curr.code}>
+                          <span className="flex items-center gap-2">
+                            <span className="font-medium">{curr.code}</span>
+                            <span className="text-slate-500">({curr.symbol})</span>
+                            <span className="text-sm text-slate-400">- {curr.name}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="bg-slate-100 dark:bg-slate-800 rounded-lg p-4">
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    <strong>Preview:</strong> {formatCurrency(25000)} will display as the amount format
+                  </p>
                 </div>
               </CardContent>
             </Card>

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Phone, Mail, MessageCircle, ArrowRight, User } from "lucide-react";
 import { Link } from "wouter";
 import { formatCurrency, getStatusBadgeClass } from "@/lib/utils";
+import { useCurrency } from "@/hooks/use-currency";
 import type { Client } from "@shared/schema";
 
 interface ClientCardProps {
@@ -13,6 +14,8 @@ interface ClientCardProps {
 }
 
 export function ClientCard({ client, campaignCount = 0, animationDelay = 0 }: ClientCardProps) {
+  useCurrency();
+  
   const handleContact = (type: 'phone' | 'email' | 'whatsapp') => {
     switch (type) {
       case 'phone':
