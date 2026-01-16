@@ -133,40 +133,70 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
       toast({ title: "Error", description: "Please enter a valid amount", variant: "destructive" });
       return;
     }
-
-    const monthsToPayFor = Math.floor(amount / monthlyCharge);
-    if (monthsToPayFor === 0) {
-      toast({ title: "Error", description: `Amount must be at least ${formatCurrency(monthlyCharge)} to cover one month`, variant: "destructive" });
+    
+    if (allUnpaidMonths.length === 0) {
+      toast({ title: "Info", description: "No unpaid months to apply payment to", variant: "default" });
       return;
     }
 
-    const monthsToProcess = allUnpaidMonths.slice(0, monthsToPayFor);
+    let remainingAmount = amount;
+    const monthsProcessed: string[] = [];
     
     try {
-      for (const monthData of monthsToProcess) {
-        if (monthData.billing) {
-          await apiRequest("PUT", `/api/billing/${monthData.billing.id}`, {
-            isPaid: true,
-            paidDate: new Date(paymentDate).toISOString(),
-          });
-        } else {
-          await apiRequest("POST", `/api/clients/${clientId}/billing`, {
-            month: monthData.month,
-            year: monthData.year,
-            amount: defaultAmount,
-            isPaid: true,
-            paidDate: new Date(paymentDate).toISOString(),
-          });
+      for (const monthData of allUnpaidMonths) {
+        if (remainingAmount <= 0) break;
+        
+        const alreadyPaid = monthData.billing ? parseFloat(monthData.billing.paidAmount || "0") : 0;
+        const monthTotal = monthData.billing ? parseFloat(monthData.billing.amount) : monthlyCharge;
+        const stillNeeded = monthTotal - alreadyPaid;
+        
+        if (remainingAmount >= stillNeeded) {
+          // Can fully pay this month
+          if (monthData.billing) {
+            await apiRequest("PUT", `/api/billing/${monthData.billing.id}`, {
+              isPaid: true,
+              paidAmount: monthTotal.toString(),
+              paidDate: new Date(paymentDate).toISOString(),
+            });
+          } else {
+            await apiRequest("POST", `/api/clients/${clientId}/billing`, {
+              month: monthData.month,
+              year: monthData.year,
+              amount: defaultAmount,
+              paidAmount: monthTotal.toString(),
+              isPaid: true,
+              paidDate: new Date(paymentDate).toISOString(),
+            });
+          }
+          remainingAmount -= stillNeeded;
+          monthsProcessed.push(`${monthData.monthName.slice(0, 3)}'${String(monthData.year).slice(-2)}`);
+        } else if (remainingAmount > 0) {
+          // Partial payment for this month
+          const newPaidAmount = alreadyPaid + remainingAmount;
+          if (monthData.billing) {
+            await apiRequest("PUT", `/api/billing/${monthData.billing.id}`, {
+              paidAmount: newPaidAmount.toString(),
+            });
+          } else {
+            await apiRequest("POST", `/api/clients/${clientId}/billing`, {
+              month: monthData.month,
+              year: monthData.year,
+              amount: defaultAmount,
+              paidAmount: newPaidAmount.toString(),
+              isPaid: false,
+            });
+          }
+          monthsProcessed.push(`${monthData.monthName.slice(0, 3)}'${String(monthData.year).slice(-2)} (partial)`);
+          remainingAmount = 0;
         }
       }
 
       queryClient.invalidateQueries({ queryKey: [`/api/clients/${clientId}/billing`] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       
-      const remainder = amount % monthlyCharge;
       toast({
         title: "Payment Applied",
-        description: `${monthsToProcess.length} month(s) marked as paid. ${remainder > 0 ? `Remaining: ${formatCurrency(remainder)}` : ''}`,
+        description: `Applied to: ${monthsProcessed.join(", ")}`,
       });
       
       setShowBulkPaymentDialog(false);
@@ -184,12 +214,32 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
   };
 
   const bulkPaymentPreview = useMemo(() => {
-    const amount = parseFloat(bulkAmount) || 0;
-    const monthsCount = Math.floor(amount / monthlyCharge);
-    const remainder = amount % monthlyCharge;
-    const monthsToShow = allUnpaidMonths.slice(0, monthsCount);
-    const monthNames = monthsToShow.map(m => `${m.monthName.slice(0, 3)}'${String(m.year).slice(-2)}`).join(", ");
-    return { monthsCount, remainder, monthNames, monthsToShow };
+    let amount = parseFloat(bulkAmount) || 0;
+    const monthsInfo: { name: string; amount: number; isPartial: boolean }[] = [];
+    let totalMonthsFullyPaid = 0;
+    let partialMonth: { name: string; paid: number; remaining: number } | null = null;
+    
+    for (const monthData of allUnpaidMonths) {
+      if (amount <= 0) break;
+      
+      const alreadyPaid = monthData.billing ? parseFloat(monthData.billing.paidAmount || "0") : 0;
+      const monthTotal = monthData.billing ? parseFloat(monthData.billing.amount) : monthlyCharge;
+      const stillNeeded = monthTotal - alreadyPaid;
+      const monthName = `${monthData.monthName.slice(0, 3)}'${String(monthData.year).slice(-2)}`;
+      
+      if (amount >= stillNeeded) {
+        monthsInfo.push({ name: monthName, amount: stillNeeded, isPartial: false });
+        totalMonthsFullyPaid++;
+        amount -= stillNeeded;
+      } else {
+        monthsInfo.push({ name: monthName, amount: amount, isPartial: true });
+        partialMonth = { name: monthName, paid: alreadyPaid + amount, remaining: monthTotal - (alreadyPaid + amount) };
+        amount = 0;
+      }
+    }
+    
+    const monthNames = monthsInfo.map(m => m.isPartial ? `${m.name} (partial)` : m.name).join(", ");
+    return { monthsCount: totalMonthsFullyPaid, monthNames, partialMonth, monthsInfo };
   }, [bulkAmount, monthlyCharge, allUnpaidMonths]);
 
   if (isLoading) {
@@ -300,6 +350,10 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
         {yearlyBilling.map(({ month, monthName, billing, isCurrentOrPast }) => {
           const isPaid = billing?.isPaid;
           const isFuture = !isCurrentOrPast;
+          const totalAmount = billing ? parseFloat(billing.amount) : monthlyCharge;
+          const paidAmount = billing ? parseFloat(billing.paidAmount || "0") : 0;
+          const remainingAmount = totalAmount - paidAmount;
+          const hasPartialPayment = paidAmount > 0 && !isPaid;
           
           return (
             <Card 
@@ -307,6 +361,8 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
               className={`relative overflow-hidden transition-all duration-200 hover:shadow-lg ${
                 isPaid 
                   ? 'bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-slate-800 border-emerald-300 dark:border-emerald-700' 
+                  : hasPartialPayment
+                    ? 'bg-gradient-to-br from-blue-50 to-white dark:from-blue-900/20 dark:to-slate-800 border-blue-300 dark:border-blue-700'
                   : isFuture 
                     ? 'bg-slate-50 dark:bg-slate-800/30 border-slate-200 dark:border-slate-700 opacity-60'
                     : 'bg-gradient-to-br from-red-50 to-white dark:from-red-900/20 dark:to-slate-800 border-red-300 dark:border-red-700'
@@ -327,6 +383,10 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
                     <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300 text-xs">
                       Paid
                     </Badge>
+                  ) : hasPartialPayment ? (
+                    <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 text-xs">
+                      Partial
+                    </Badge>
                   ) : isFuture ? (
                     <Badge variant="outline" className="text-xs">Future</Badge>
                   ) : (
@@ -336,9 +396,20 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
                   )}
                 </div>
                 
-                <p className="text-lg font-bold text-slate-900 dark:text-white mb-2">
-                  {billing ? formatCurrency(billing.amount) : formatCurrency(monthlyCharge)}
-                </p>
+                {hasPartialPayment ? (
+                  <div className="mb-2">
+                    <p className="text-lg font-bold text-blue-700 dark:text-blue-300">
+                      {formatCurrency(remainingAmount)}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      remaining of {formatCurrency(totalAmount)}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                    {formatCurrency(totalAmount)}
+                  </p>
+                )}
                 
                 {billing?.isPaid && billing.paidDate && (
                   <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2">
@@ -472,20 +543,24 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
               <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4">
                 <h4 className="font-semibold text-emerald-700 dark:text-emerald-300 mb-2">Payment Preview</h4>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Months to be paid:</span>
-                    <span className="font-semibold">{bulkPaymentPreview.monthsCount}</span>
-                  </div>
+                  {bulkPaymentPreview.monthsCount > 0 && (
+                    <div className="flex justify-between">
+                      <span>Months fully paid:</span>
+                      <span className="font-semibold">{bulkPaymentPreview.monthsCount}</span>
+                    </div>
+                  )}
                   {bulkPaymentPreview.monthNames && (
                     <div className="flex justify-between">
-                      <span>Months:</span>
+                      <span>Applies to:</span>
                       <span className="font-medium text-emerald-600">{bulkPaymentPreview.monthNames}</span>
                     </div>
                   )}
-                  {bulkPaymentPreview.remainder > 0 && (
-                    <div className="flex justify-between text-amber-600">
-                      <span>Remaining balance:</span>
-                      <span className="font-semibold">{formatCurrency(bulkPaymentPreview.remainder)}</span>
+                  {bulkPaymentPreview.partialMonth && (
+                    <div className="mt-2 pt-2 border-t border-emerald-200 dark:border-emerald-700">
+                      <div className="flex justify-between text-blue-600">
+                        <span>Next month ({bulkPaymentPreview.partialMonth.name}) will need:</span>
+                        <span className="font-semibold">{formatCurrency(bulkPaymentPreview.partialMonth.remaining)}</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -497,7 +572,7 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
             <Button variant="outline" onClick={() => setShowBulkPaymentDialog(false)}>Cancel</Button>
             <Button 
               onClick={handleBulkPayment} 
-              disabled={!bulkAmount || parseFloat(bulkAmount) < monthlyCharge}
+              disabled={!bulkAmount || parseFloat(bulkAmount) <= 0}
               className="bg-emerald-500 hover:bg-emerald-600"
             >
               Apply Payment

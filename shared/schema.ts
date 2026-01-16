@@ -25,6 +25,7 @@ export const billing = pgTable("billing", {
   month: integer("month").notNull(), // 1-12
   year: integer("year").notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }).default("0").notNull(),
   isPaid: boolean("is_paid").default(false).notNull(),
   paidDate: timestamp("paid_date"),
   paymentMethod: text("payment_method"),
