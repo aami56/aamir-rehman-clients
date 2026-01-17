@@ -11,6 +11,7 @@ import Invoices from "@/pages/invoices";
 import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
 import ClientDetail from "@/pages/client-detail";
+import PublicInvoice from "@/pages/public-invoice";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/analytics" component={Analytics} />
       <Route path="/settings" component={Settings} />
       <Route path="/client/:id" component={ClientDetail} />
+      <Route path="/invoice/:clientId/:month/:year" component={PublicInvoice} />
       <Route component={NotFound} />
     </Switch>
   );

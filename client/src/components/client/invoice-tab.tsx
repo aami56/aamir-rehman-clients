@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { FileText, Download, Printer, Calendar, Building2, MessageCircle, Mail, Send, Loader2 } from "lucide-react";
+import { FileText, Download, Printer, Calendar, Building2, MessageCircle, Mail, Send, Loader2, Link2, Copy } from "lucide-react";
 import { formatCurrency, getMonthName } from "@/lib/utils";
 import { useCurrency } from "@/hooks/use-currency";
 import { useToast } from "@/hooks/use-toast";
@@ -369,6 +369,18 @@ export function InvoiceTab({ clientId, client }: InvoiceTabProps) {
                 >
                   <Mail className="w-4 h-4 mr-2" />
                   Email + PDF
+                </Button>
+                <Button 
+                  variant="outline"
+                  className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/20"
+                  onClick={() => {
+                    const url = `${window.location.origin}/invoice/${clientId}/${selectedMonth}/${selectedYear}`;
+                    navigator.clipboard.writeText(url);
+                    toast({ title: "Link Copied!", description: "Invoice link copied to clipboard" });
+                  }}
+                >
+                  <Link2 className="w-4 h-4 mr-2" />
+                  Copy Link
                 </Button>
               </div>
 

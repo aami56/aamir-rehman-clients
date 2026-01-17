@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar, DollarSign, Check, X, Plus, CreditCard, TrendingUp, AlertCircle, Banknote, FileText, Printer, Download, MessageCircle, Mail, Send, Loader2 } from "lucide-react";
+import { Calendar, DollarSign, Check, X, Plus, CreditCard, TrendingUp, AlertCircle, Banknote, FileText, Printer, Download, MessageCircle, Mail, Send, Loader2, Link2 } from "lucide-react";
 import { formatCurrency, getMonthName } from "@/lib/utils";
 import { useCurrency } from "@/hooks/use-currency";
 import { apiRequest } from "@/lib/queryClient";
@@ -1119,6 +1119,20 @@ export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", 
                 >
                   <Mail className="w-4 h-4 mr-2" />
                   Email + PDF
+                </Button>
+                <Button 
+                  variant="outline"
+                  className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/20"
+                  onClick={() => {
+                    if (invoiceBilling) {
+                      const url = `${window.location.origin}/invoice/${clientId}/${invoiceBilling.month}/${invoiceBilling.year}`;
+                      navigator.clipboard.writeText(url);
+                      toast({ title: "Link Copied!", description: "Invoice link copied to clipboard" });
+                    }
+                  }}
+                >
+                  <Link2 className="w-4 h-4 mr-2" />
+                  Copy Link
                 </Button>
               </div>
 
