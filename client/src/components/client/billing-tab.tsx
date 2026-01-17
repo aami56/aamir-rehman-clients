@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,12 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar, DollarSign, Check, X, Plus, CreditCard, TrendingUp, AlertCircle, Banknote, FileText, Printer, Download, MessageCircle, Mail, Send } from "lucide-react";
+import { Calendar, DollarSign, Check, X, Plus, CreditCard, TrendingUp, AlertCircle, Banknote, FileText, Printer, Download, MessageCircle, Mail, Send, Loader2 } from "lucide-react";
 import { formatCurrency, getMonthName } from "@/lib/utils";
 import { useCurrency } from "@/hooks/use-currency";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Billing } from "@shared/schema";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 interface BillingTabProps {
   clientId: number;
@@ -41,6 +43,8 @@ export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", 
   const [shareMethod, setShareMethod] = useState<'whatsapp' | 'email'>('whatsapp');
   const [customWhatsApp, setCustomWhatsApp] = useState('');
   const [customEmail, setCustomEmail] = useState('');
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const invoiceRef = useRef<HTMLDivElement>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState(defaultAmount);
   const [bulkAmount, setBulkAmount] = useState("");
@@ -148,47 +152,133 @@ export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", 
     setShowAddDialog(true);
   };
 
-  const getInvoiceText = (billing: Billing) => {
-    return `
-Invoice: INV-${billing.year}${String(billing.month).padStart(2, '0')}${String(clientId).padStart(3, '0')}
-From: ${profile.company}
+  const generatePdfBlob = async (): Promise<Blob | null> => {
+    const element = invoiceRef.current;
+    if (!element) return null;
 
-Bill To: ${clientName || `Client #${clientId}`}
-Period: ${getMonthName(billing.month)} ${billing.year}
-
-Amount: ${formatCurrency(parseFloat(billing.amount))}
-Status: PAID
-Payment Date: ${billing.paidDate ? new Date(billing.paidDate).toLocaleDateString() : 'N/A'}
-
-Thank you for your business!
-Contact: ${profile.email}
-    `.trim();
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgWidth = 210;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+      return pdf.output('blob');
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      return null;
+    }
   };
 
-  const handleShareWhatsApp = () => {
+  const handleDownloadInvoicePDF = async () => {
+    if (!invoiceBilling) return;
+    setIsGeneratingPdf(true);
+    try {
+      const element = invoiceRef.current;
+      if (!element) return;
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgWidth = 210;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+      const invoiceNumber = `INV-${invoiceBilling.year}${String(invoiceBilling.month).padStart(2, '0')}${String(clientId).padStart(3, '0')}`;
+      pdf.save(`${invoiceNumber}.pdf`);
+      toast({ title: "Success", description: "PDF downloaded successfully" });
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to generate PDF", variant: "destructive" });
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleShareWhatsApp = async () => {
     if (!invoiceBilling) return;
     const phone = customWhatsApp.replace(/\D/g, '');
     if (!phone) {
       toast({ title: "Error", description: "Please enter a valid WhatsApp number", variant: "destructive" });
       return;
     }
-    const message = encodeURIComponent(getInvoiceText(invoiceBilling));
-    window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
-    toast({ title: "Success", description: "Opening WhatsApp..." });
-    setShowShareDialog(false);
+
+    setIsGeneratingPdf(true);
+    try {
+      const pdfBlob = await generatePdfBlob();
+      if (pdfBlob) {
+        const invoiceNumber = `INV-${invoiceBilling.year}${String(invoiceBilling.month).padStart(2, '0')}${String(clientId).padStart(3, '0')}`;
+        const pdfUrl = URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = pdfUrl;
+        link.download = `${invoiceNumber}.pdf`;
+        link.click();
+        URL.revokeObjectURL(pdfUrl);
+        
+        toast({ 
+          title: "PDF Downloaded", 
+          description: "Now attach the downloaded PDF to your WhatsApp message" 
+        });
+        
+        setTimeout(() => {
+          const message = encodeURIComponent(`Hi, please find the invoice ${invoiceNumber} for ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}. Amount: ${formatCurrency(parseFloat(invoiceBilling.amount))}`);
+          window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+        }, 500);
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to generate PDF", variant: "destructive" });
+    } finally {
+      setIsGeneratingPdf(false);
+      setShowShareDialog(false);
+    }
   };
 
-  const handleShareEmail = () => {
+  const handleShareEmail = async () => {
     if (!invoiceBilling) return;
     if (!customEmail || !customEmail.includes('@')) {
       toast({ title: "Error", description: "Please enter a valid email address", variant: "destructive" });
       return;
     }
-    const subject = encodeURIComponent(`Invoice - ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}`);
-    const body = encodeURIComponent(getInvoiceText(invoiceBilling));
-    window.open(`mailto:${customEmail}?subject=${subject}&body=${body}`, '_self');
-    toast({ title: "Success", description: "Opening email client..." });
-    setShowShareDialog(false);
+
+    setIsGeneratingPdf(true);
+    try {
+      const pdfBlob = await generatePdfBlob();
+      if (pdfBlob) {
+        const invoiceNumber = `INV-${invoiceBilling.year}${String(invoiceBilling.month).padStart(2, '0')}${String(clientId).padStart(3, '0')}`;
+        const pdfUrl = URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = pdfUrl;
+        link.download = `${invoiceNumber}.pdf`;
+        link.click();
+        URL.revokeObjectURL(pdfUrl);
+        
+        toast({ 
+          title: "PDF Downloaded", 
+          description: "Now attach the downloaded PDF to your email" 
+        });
+        
+        setTimeout(() => {
+          const subject = encodeURIComponent(`Invoice ${invoiceNumber} - ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}`);
+          const body = encodeURIComponent(`Hi,\n\nPlease find attached the invoice ${invoiceNumber} for ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}.\n\nAmount: ${formatCurrency(parseFloat(invoiceBilling.amount))}\n\nThank you for your business!\n\n${profile.company}`);
+          window.open(`mailto:${customEmail}?subject=${subject}&body=${body}`, '_self');
+        }, 500);
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to generate PDF", variant: "destructive" });
+    } finally {
+      setIsGeneratingPdf(false);
+      setShowShareDialog(false);
+    }
   };
 
   const handleCreateBilling = () => {
@@ -974,60 +1064,23 @@ Contact: ${profile.email}
                 </Button>
                 <Button 
                   variant="outline"
-                  onClick={() => {
-                    const printContent = document.getElementById('billing-invoice-content');
-                    if (!printContent) return;
-                    const printWindow = window.open('', '', 'width=800,height=600');
-                    if (!printWindow) return;
-                    printWindow.document.write(`
-                      <html>
-                        <head>
-                          <title>Invoice - ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}</title>
-                          <style>
-                            * { margin: 0; padding: 0; box-sizing: border-box; }
-                            body { font-family: 'Segoe UI', system-ui, sans-serif; padding: 40px; color: #1e293b; }
-                            .invoice-header { display: flex; justify-content: space-between; margin-bottom: 40px; }
-                            .company-info h1 { font-size: 24px; color: #6366f1; margin-bottom: 8px; }
-                            .company-info p { color: #64748b; font-size: 14px; }
-                            .invoice-title { text-align: right; }
-                            .invoice-title h2 { font-size: 32px; color: #1e293b; margin-bottom: 8px; }
-                            .invoice-title p { color: #64748b; }
-                            .invoice-meta { display: flex; justify-content: space-between; margin-bottom: 40px; padding: 20px; background: #f8fafc; border-radius: 8px; }
-                            .meta-section h3 { font-size: 12px; text-transform: uppercase; color: #64748b; margin-bottom: 8px; }
-                            .meta-section p { font-size: 14px; color: #1e293b; }
-                            .invoice-table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
-                            .invoice-table th { text-align: left; padding: 12px; background: #6366f1; color: white; font-size: 12px; text-transform: uppercase; }
-                            .invoice-table td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
-                            .totals { margin-left: auto; width: 300px; }
-                            .totals-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
-                            .totals-row.total { font-weight: bold; font-size: 18px; border-bottom: 2px solid #6366f1; }
-                            .footer { margin-top: 60px; text-align: center; color: #64748b; font-size: 12px; }
-                            .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #dcfce7; color: #16a34a; }
-                          </style>
-                        </head>
-                        <body>
-                          ${printContent.innerHTML}
-                        </body>
-                      </html>
-                    `);
-                    printWindow.document.close();
-                    printWindow.print();
-                  }}
+                  onClick={handleDownloadInvoicePDF}
+                  disabled={isGeneratingPdf}
                 >
-                  <Download className="w-4 h-4 mr-2" />
+                  {isGeneratingPdf ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                   Download PDF
                 </Button>
                 <Button 
                   variant="outline"
                   className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
                   onClick={() => { 
-                    setCustomWhatsApp(clientEmail ? '' : '');
+                    setCustomWhatsApp('');
                     setShareMethod('whatsapp'); 
                     setShowShareDialog(true); 
                   }}
                 >
                   <MessageCircle className="w-4 h-4 mr-2" />
-                  WhatsApp
+                  WhatsApp + PDF
                 </Button>
                 <Button 
                   variant="outline"
@@ -1039,13 +1092,14 @@ Contact: ${profile.email}
                   }}
                 >
                   <Mail className="w-4 h-4 mr-2" />
-                  Email
+                  Email + PDF
                 </Button>
               </div>
 
               <div 
+                ref={invoiceRef}
                 id="billing-invoice-content"
-                className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-6 shadow-sm"
+                className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm"
               >
                 {/* Invoice Header */}
                 <div className="invoice-header flex justify-between items-start mb-6">
@@ -1200,24 +1254,28 @@ Contact: ${profile.email}
 
             {invoiceBilling && (
               <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
-                <p className="text-xs text-slate-600 dark:text-slate-400 mb-2 font-semibold">Invoice Preview:</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-2 font-semibold">Invoice will be sent as PDF:</p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   Invoice for {clientName || `Client #${clientId}`}<br/>
                   Period: {getMonthName(invoiceBilling.month)} {invoiceBilling.year}<br/>
                   Amount: {formatCurrency(parseFloat(invoiceBilling.amount))}
+                </p>
+                <p className="text-xs text-amber-600 mt-2">
+                  PDF will be downloaded first, then {shareMethod === 'whatsapp' ? 'WhatsApp' : 'Email'} will open for you to attach it.
                 </p>
               </div>
             )}
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowShareDialog(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowShareDialog(false)} disabled={isGeneratingPdf}>Cancel</Button>
             <Button 
               onClick={shareMethod === 'whatsapp' ? handleShareWhatsApp : handleShareEmail}
               className={shareMethod === 'whatsapp' ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-500 hover:bg-blue-600'}
+              disabled={isGeneratingPdf}
             >
-              <Send className="w-4 h-4 mr-2" />
-              Send
+              {isGeneratingPdf ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+              {isGeneratingPdf ? 'Generating PDF...' : 'Generate PDF & Send'}
             </Button>
           </DialogFooter>
         </DialogContent>
