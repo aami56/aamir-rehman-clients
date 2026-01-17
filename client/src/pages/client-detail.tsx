@@ -14,6 +14,7 @@ import { BillingTab } from "@/components/client/billing-tab";
 import { CampaignsTab } from "@/components/client/campaigns-tab";
 import { NotesTab } from "@/components/client/notes-tab";
 import { HistoryTab } from "@/components/client/history-tab";
+import { InvoiceTab } from "@/components/client/invoice-tab";
 import type { Client } from "@shared/schema";
 
 export default function ClientDetail() {
@@ -258,12 +259,15 @@ export default function ClientDetail() {
               <Card className="glass-card">
                 <Tabs defaultValue="overview" className="w-full">
                   <div className="border-b border-slate-200 dark:border-slate-700 px-6">
-                    <TabsList className="grid w-full max-w-2xl grid-cols-5 bg-transparent">
+                    <TabsList className="grid w-full max-w-3xl grid-cols-6 bg-transparent">
                       <TabsTrigger value="overview" className="data-[state=active]:bg-primary data-[state=active]:text-white">
                         Overview
                       </TabsTrigger>
                       <TabsTrigger value="billing" className="data-[state=active]:bg-primary data-[state=active]:text-white">
                         Billing
+                      </TabsTrigger>
+                      <TabsTrigger value="invoices" className="data-[state=active]:bg-primary data-[state=active]:text-white">
+                        Invoices
                       </TabsTrigger>
                       <TabsTrigger value="campaigns" className="data-[state=active]:bg-primary data-[state=active]:text-white">
                         Campaigns
@@ -291,6 +295,10 @@ export default function ClientDetail() {
 
                     <TabsContent value="billing" className="mt-0">
                       <BillingTab clientId={clientId} defaultAmount={client?.monthlyServiceCharge || "1500"} />
+                    </TabsContent>
+
+                    <TabsContent value="invoices" className="mt-0">
+                      <InvoiceTab clientId={clientId} client={client} />
                     </TabsContent>
 
                     <TabsContent value="campaigns" className="mt-0">
