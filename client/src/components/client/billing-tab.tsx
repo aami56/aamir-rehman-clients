@@ -218,25 +218,38 @@ export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", 
       const pdfBlob = await generatePdfBlob();
       if (pdfBlob) {
         const invoiceNumber = `INV-${invoiceBilling.year}${String(invoiceBilling.month).padStart(2, '0')}${String(clientId).padStart(3, '0')}`;
-        const pdfUrl = URL.createObjectURL(pdfBlob);
-        const link = document.createElement('a');
-        link.href = pdfUrl;
-        link.download = `${invoiceNumber}.pdf`;
-        link.click();
-        URL.revokeObjectURL(pdfUrl);
+        const pdfFile = new File([pdfBlob], `${invoiceNumber}.pdf`, { type: 'application/pdf' });
         
-        toast({ 
-          title: "PDF Downloaded", 
-          description: "Now attach the downloaded PDF to your WhatsApp message" 
-        });
-        
-        setTimeout(() => {
-          const message = encodeURIComponent(`Hi, please find the invoice ${invoiceNumber} for ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}. Amount: ${formatCurrency(parseFloat(invoiceBilling.amount))}`);
-          window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
-        }, 500);
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+          await navigator.share({
+            files: [pdfFile],
+            title: `Invoice ${invoiceNumber}`,
+            text: `Invoice for ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}. Amount: ${formatCurrency(parseFloat(invoiceBilling.amount))}`
+          });
+          toast({ title: "Success", description: "Invoice shared successfully" });
+        } else {
+          const pdfUrl = URL.createObjectURL(pdfBlob);
+          const link = document.createElement('a');
+          link.href = pdfUrl;
+          link.download = `${invoiceNumber}.pdf`;
+          link.click();
+          URL.revokeObjectURL(pdfUrl);
+          
+          toast({ 
+            title: "PDF Downloaded", 
+            description: "Now attach the downloaded PDF to your WhatsApp message" 
+          });
+          
+          setTimeout(() => {
+            const message = encodeURIComponent(`Hi, please find the invoice ${invoiceNumber} for ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}. Amount: ${formatCurrency(parseFloat(invoiceBilling.amount))}`);
+            window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+          }, 500);
+        }
       }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to generate PDF", variant: "destructive" });
+    } catch (error: any) {
+      if (error.name !== 'AbortError') {
+        toast({ title: "Error", description: "Failed to share PDF", variant: "destructive" });
+      }
     } finally {
       setIsGeneratingPdf(false);
       setShowShareDialog(false);
@@ -255,26 +268,39 @@ export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", 
       const pdfBlob = await generatePdfBlob();
       if (pdfBlob) {
         const invoiceNumber = `INV-${invoiceBilling.year}${String(invoiceBilling.month).padStart(2, '0')}${String(clientId).padStart(3, '0')}`;
-        const pdfUrl = URL.createObjectURL(pdfBlob);
-        const link = document.createElement('a');
-        link.href = pdfUrl;
-        link.download = `${invoiceNumber}.pdf`;
-        link.click();
-        URL.revokeObjectURL(pdfUrl);
+        const pdfFile = new File([pdfBlob], `${invoiceNumber}.pdf`, { type: 'application/pdf' });
         
-        toast({ 
-          title: "PDF Downloaded", 
-          description: "Now attach the downloaded PDF to your email" 
-        });
-        
-        setTimeout(() => {
-          const subject = encodeURIComponent(`Invoice ${invoiceNumber} - ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}`);
-          const body = encodeURIComponent(`Hi,\n\nPlease find attached the invoice ${invoiceNumber} for ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}.\n\nAmount: ${formatCurrency(parseFloat(invoiceBilling.amount))}\n\nThank you for your business!\n\n${profile.company}`);
-          window.open(`mailto:${customEmail}?subject=${subject}&body=${body}`, '_self');
-        }, 500);
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+          await navigator.share({
+            files: [pdfFile],
+            title: `Invoice ${invoiceNumber}`,
+            text: `Invoice for ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}. Amount: ${formatCurrency(parseFloat(invoiceBilling.amount))}`
+          });
+          toast({ title: "Success", description: "Invoice shared successfully" });
+        } else {
+          const pdfUrl = URL.createObjectURL(pdfBlob);
+          const link = document.createElement('a');
+          link.href = pdfUrl;
+          link.download = `${invoiceNumber}.pdf`;
+          link.click();
+          URL.revokeObjectURL(pdfUrl);
+          
+          toast({ 
+            title: "PDF Downloaded", 
+            description: "Now attach the downloaded PDF to your email" 
+          });
+          
+          setTimeout(() => {
+            const subject = encodeURIComponent(`Invoice ${invoiceNumber} - ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}`);
+            const body = encodeURIComponent(`Hi,\n\nPlease find attached the invoice ${invoiceNumber} for ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}.\n\nAmount: ${formatCurrency(parseFloat(invoiceBilling.amount))}\n\nThank you for your business!\n\n${profile.company}`);
+            window.open(`mailto:${customEmail}?subject=${subject}&body=${body}`, '_self');
+          }, 500);
+        }
       }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to generate PDF", variant: "destructive" });
+    } catch (error: any) {
+      if (error.name !== 'AbortError') {
+        toast({ title: "Error", description: "Failed to share PDF", variant: "destructive" });
+      }
     } finally {
       setIsGeneratingPdf(false);
       setShowShareDialog(false);
@@ -1260,8 +1286,8 @@ export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", 
                   Period: {getMonthName(invoiceBilling.month)} {invoiceBilling.year}<br/>
                   Amount: {formatCurrency(parseFloat(invoiceBilling.amount))}
                 </p>
-                <p className="text-xs text-amber-600 mt-2">
-                  PDF will be downloaded first, then {shareMethod === 'whatsapp' ? 'WhatsApp' : 'Email'} will open for you to attach it.
+                <p className="text-xs text-emerald-600 mt-2">
+                  On mobile devices, you can share the PDF directly. On desktop, the PDF will download and the app will open.
                 </p>
               </div>
             )}
@@ -1275,7 +1301,7 @@ export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", 
               disabled={isGeneratingPdf}
             >
               {isGeneratingPdf ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
-              {isGeneratingPdf ? 'Generating PDF...' : 'Generate PDF & Send'}
+              {isGeneratingPdf ? 'Generating PDF...' : 'Share PDF'}
             </Button>
           </DialogFooter>
         </DialogContent>
