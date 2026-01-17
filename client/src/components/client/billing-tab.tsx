@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar, DollarSign, Check, X, Plus, CreditCard, TrendingUp, AlertCircle, Banknote, FileText, Printer, Download } from "lucide-react";
+import { Calendar, DollarSign, Check, X, Plus, CreditCard, TrendingUp, AlertCircle, Banknote, FileText, Printer, Download, MessageCircle, Mail, Send } from "lucide-react";
 import { formatCurrency, getMonthName } from "@/lib/utils";
 import { useCurrency } from "@/hooks/use-currency";
 import { apiRequest } from "@/lib/queryClient";
@@ -37,6 +37,10 @@ export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", 
   const [showBulkPaymentDialog, setShowBulkPaymentDialog] = useState(false);
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
   const [invoiceBilling, setInvoiceBilling] = useState<Billing | null>(null);
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [shareMethod, setShareMethod] = useState<'whatsapp' | 'email'>('whatsapp');
+  const [customWhatsApp, setCustomWhatsApp] = useState('');
+  const [customEmail, setCustomEmail] = useState('');
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState(defaultAmount);
   const [bulkAmount, setBulkAmount] = useState("");
@@ -142,6 +146,49 @@ export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", 
     setSelectedMonth(month);
     setCustomAmount(defaultAmount);
     setShowAddDialog(true);
+  };
+
+  const getInvoiceText = (billing: Billing) => {
+    return `
+Invoice: INV-${billing.year}${String(billing.month).padStart(2, '0')}${String(clientId).padStart(3, '0')}
+From: ${profile.company}
+
+Bill To: ${clientName || `Client #${clientId}`}
+Period: ${getMonthName(billing.month)} ${billing.year}
+
+Amount: ${formatCurrency(parseFloat(billing.amount))}
+Status: PAID
+Payment Date: ${billing.paidDate ? new Date(billing.paidDate).toLocaleDateString() : 'N/A'}
+
+Thank you for your business!
+Contact: ${profile.email}
+    `.trim();
+  };
+
+  const handleShareWhatsApp = () => {
+    if (!invoiceBilling) return;
+    const phone = customWhatsApp.replace(/\D/g, '');
+    if (!phone) {
+      toast({ title: "Error", description: "Please enter a valid WhatsApp number", variant: "destructive" });
+      return;
+    }
+    const message = encodeURIComponent(getInvoiceText(invoiceBilling));
+    window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+    toast({ title: "Success", description: "Opening WhatsApp..." });
+    setShowShareDialog(false);
+  };
+
+  const handleShareEmail = () => {
+    if (!invoiceBilling) return;
+    if (!customEmail || !customEmail.includes('@')) {
+      toast({ title: "Error", description: "Please enter a valid email address", variant: "destructive" });
+      return;
+    }
+    const subject = encodeURIComponent(`Invoice - ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}`);
+    const body = encodeURIComponent(getInvoiceText(invoiceBilling));
+    window.open(`mailto:${customEmail}?subject=${subject}&body=${body}`, '_self');
+    toast({ title: "Success", description: "Opening email client..." });
+    setShowShareDialog(false);
   };
 
   const handleCreateBilling = () => {
@@ -970,6 +1017,30 @@ export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", 
                   <Download className="w-4 h-4 mr-2" />
                   Download PDF
                 </Button>
+                <Button 
+                  variant="outline"
+                  className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+                  onClick={() => { 
+                    setCustomWhatsApp(clientEmail ? '' : '');
+                    setShareMethod('whatsapp'); 
+                    setShowShareDialog(true); 
+                  }}
+                >
+                  <MessageCircle className="w-4 h-4 mr-2" />
+                  WhatsApp
+                </Button>
+                <Button 
+                  variant="outline"
+                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                  onClick={() => { 
+                    setCustomEmail(clientEmail || '');
+                    setShareMethod('email'); 
+                    setShowShareDialog(true); 
+                  }}
+                >
+                  <Mail className="w-4 h-4 mr-2" />
+                  Email
+                </Button>
               </div>
 
               <div 
@@ -1072,6 +1143,82 @@ export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", 
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowInvoiceDialog(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Share Dialog */}
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {shareMethod === 'whatsapp' ? (
+                <>
+                  <MessageCircle className="w-5 h-5 text-green-500" />
+                  Send via WhatsApp
+                </>
+              ) : (
+                <>
+                  <Mail className="w-5 h-5 text-blue-500" />
+                  Send via Email
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {shareMethod === 'whatsapp' 
+                ? 'Enter the WhatsApp number to send the invoice' 
+                : 'Enter the email address to send the invoice'
+              }
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {shareMethod === 'whatsapp' ? (
+              <div className="space-y-2">
+                <Label htmlFor="whatsapp-number-billing">WhatsApp Number</Label>
+                <Input
+                  id="whatsapp-number-billing"
+                  type="tel"
+                  placeholder="+92 300 1234567"
+                  value={customWhatsApp}
+                  onChange={(e) => setCustomWhatsApp(e.target.value)}
+                />
+                <p className="text-xs text-slate-500">Include country code (e.g., +92 for Pakistan)</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="email-address-billing">Email Address</Label>
+                <Input
+                  id="email-address-billing"
+                  type="email"
+                  placeholder="client@example.com"
+                  value={customEmail}
+                  onChange={(e) => setCustomEmail(e.target.value)}
+                />
+              </div>
+            )}
+
+            {invoiceBilling && (
+              <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-2 font-semibold">Invoice Preview:</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Invoice for {clientName || `Client #${clientId}`}<br/>
+                  Period: {getMonthName(invoiceBilling.month)} {invoiceBilling.year}<br/>
+                  Amount: {formatCurrency(parseFloat(invoiceBilling.amount))}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowShareDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={shareMethod === 'whatsapp' ? handleShareWhatsApp : handleShareEmail}
+              className={shareMethod === 'whatsapp' ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-500 hover:bg-blue-600'}
+            >
+              <Send className="w-4 h-4 mr-2" />
+              Send
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

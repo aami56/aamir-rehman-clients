@@ -6,9 +6,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { FileText, Download, Printer, Calendar, Building2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { FileText, Download, Printer, Calendar, Building2, MessageCircle, Mail, Send } from "lucide-react";
 import { formatCurrency, getMonthName } from "@/lib/utils";
 import { useCurrency } from "@/hooks/use-currency";
+import { useToast } from "@/hooks/use-toast";
 import type { Client, Billing } from "@shared/schema";
 
 interface InvoiceTabProps {
@@ -30,7 +32,12 @@ export function InvoiceTab({ clientId, client }: InvoiceTabProps) {
     return `INV-${currentDate.getFullYear()}${String(currentDate.getMonth() + 1).padStart(2, '0')}${String(clientId).padStart(3, '0')}`;
   });
   const [showPreview, setShowPreview] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [shareMethod, setShareMethod] = useState<'whatsapp' | 'email'>('whatsapp');
+  const [customWhatsApp, setCustomWhatsApp] = useState(client.phone || '');
+  const [customEmail, setCustomEmail] = useState(client.email || '');
   const invoiceRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
   useCurrency();
 
   const profile: ProfileSettings = (() => {
@@ -122,6 +129,49 @@ export function InvoiceTab({ clientId, client }: InvoiceTabProps) {
     handlePrint();
   };
 
+  const getInvoiceText = () => {
+    const balanceDue = remainingAmount > 0 ? remainingAmount : amount;
+    return `
+Invoice: ${invoiceNumber}
+From: ${profile.company}
+
+Bill To: ${client.name}
+Period: ${getMonthName(selectedMonth)} ${selectedYear}
+
+Amount: ${formatCurrency(amount)}
+Status: ${status.text}
+${paidAmount > 0 ? `Paid: ${formatCurrency(paidAmount)}` : ''}
+Balance Due: ${formatCurrency(balanceDue)}
+
+Thank you for your business!
+Contact: ${profile.email}
+    `.trim();
+  };
+
+  const handleShareWhatsApp = () => {
+    const phone = customWhatsApp.replace(/\D/g, '');
+    if (!phone) {
+      toast({ title: "Error", description: "Please enter a valid WhatsApp number", variant: "destructive" });
+      return;
+    }
+    const message = encodeURIComponent(getInvoiceText());
+    window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+    toast({ title: "Success", description: "Opening WhatsApp..." });
+    setShowShareDialog(false);
+  };
+
+  const handleShareEmail = () => {
+    if (!customEmail || !customEmail.includes('@')) {
+      toast({ title: "Error", description: "Please enter a valid email address", variant: "destructive" });
+      return;
+    }
+    const subject = encodeURIComponent(`Invoice ${invoiceNumber} - ${getMonthName(selectedMonth)} ${selectedYear}`);
+    const body = encodeURIComponent(getInvoiceText());
+    window.open(`mailto:${customEmail}?subject=${subject}&body=${body}`, '_self');
+    toast({ title: "Success", description: "Opening email client..." });
+    setShowShareDialog(false);
+  };
+
   const getPaymentStatus = () => {
     if (!selectedBilling) return { text: 'Not Billed', class: 'status-unpaid' };
     if (selectedBilling.isPaid) return { text: 'Paid', class: 'status-paid' };
@@ -190,7 +240,7 @@ export function InvoiceTab({ clientId, client }: InvoiceTabProps) {
 
           {showPreview && (
             <>
-              <div className="flex gap-2 mb-4">
+              <div className="flex flex-wrap gap-2 mb-4">
                 <Button variant="outline" onClick={handlePrint}>
                   <Printer className="w-4 h-4 mr-2" />
                   Print
@@ -198,6 +248,22 @@ export function InvoiceTab({ clientId, client }: InvoiceTabProps) {
                 <Button variant="outline" onClick={handleDownloadPDF}>
                   <Download className="w-4 h-4 mr-2" />
                   Download PDF
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+                  onClick={() => { setShareMethod('whatsapp'); setShowShareDialog(true); }}
+                >
+                  <MessageCircle className="w-4 h-4 mr-2" />
+                  WhatsApp
+                </Button>
+                <Button 
+                  variant="outline"
+                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                  onClick={() => { setShareMethod('email'); setShowShareDialog(true); }}
+                >
+                  <Mail className="w-4 h-4 mr-2" />
+                  Email
                 </Button>
               </div>
 
@@ -302,6 +368,80 @@ export function InvoiceTab({ clientId, client }: InvoiceTabProps) {
           )}
         </CardContent>
       </Card>
+
+      {/* Share Dialog */}
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {shareMethod === 'whatsapp' ? (
+                <>
+                  <MessageCircle className="w-5 h-5 text-green-500" />
+                  Send via WhatsApp
+                </>
+              ) : (
+                <>
+                  <Mail className="w-5 h-5 text-blue-500" />
+                  Send via Email
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {shareMethod === 'whatsapp' 
+                ? 'Enter the WhatsApp number to send the invoice' 
+                : 'Enter the email address to send the invoice'
+              }
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {shareMethod === 'whatsapp' ? (
+              <div className="space-y-2">
+                <Label htmlFor="whatsapp-number">WhatsApp Number</Label>
+                <Input
+                  id="whatsapp-number"
+                  type="tel"
+                  placeholder="+92 300 1234567"
+                  value={customWhatsApp}
+                  onChange={(e) => setCustomWhatsApp(e.target.value)}
+                />
+                <p className="text-xs text-slate-500">Include country code (e.g., +92 for Pakistan)</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="email-address">Email Address</Label>
+                <Input
+                  id="email-address"
+                  type="email"
+                  placeholder="client@example.com"
+                  value={customEmail}
+                  onChange={(e) => setCustomEmail(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
+              <p className="text-xs text-slate-600 dark:text-slate-400 mb-2 font-semibold">Invoice Preview:</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Invoice {invoiceNumber} for {client.name}<br/>
+                Period: {getMonthName(selectedMonth)} {selectedYear}<br/>
+                Amount: {formatCurrency(amount)}
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowShareDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={shareMethod === 'whatsapp' ? handleShareWhatsApp : handleShareEmail}
+              className={shareMethod === 'whatsapp' ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-500 hover:bg-blue-600'}
+            >
+              <Send className="w-4 h-4 mr-2" />
+              Send
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
