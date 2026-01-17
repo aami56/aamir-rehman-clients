@@ -294,7 +294,14 @@ export default function ClientDetail() {
                     </TabsContent>
 
                     <TabsContent value="billing" className="mt-0">
-                      <BillingTab clientId={clientId} defaultAmount={client?.monthlyServiceCharge || "1500"} />
+                      <BillingTab 
+                        clientId={clientId} 
+                        defaultAmount={client?.monthlyServiceCharge || "1500"}
+                        clientName={client?.name}
+                        clientEmail={client?.email}
+                        clientAddress={client?.address || ""}
+                        contactPerson={client?.contactPerson || ""}
+                      />
                     </TabsContent>
 
                     <TabsContent value="invoices" className="mt-0">

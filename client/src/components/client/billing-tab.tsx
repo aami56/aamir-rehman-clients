@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar, DollarSign, Check, X, Plus, CreditCard, TrendingUp, AlertCircle, Banknote } from "lucide-react";
+import { Calendar, DollarSign, Check, X, Plus, CreditCard, TrendingUp, AlertCircle, Banknote, FileText, Printer, Download } from "lucide-react";
 import { formatCurrency, getMonthName } from "@/lib/utils";
 import { useCurrency } from "@/hooks/use-currency";
 import { apiRequest } from "@/lib/queryClient";
@@ -19,12 +19,24 @@ import type { Billing } from "@shared/schema";
 interface BillingTabProps {
   clientId: number;
   defaultAmount?: string;
+  clientName?: string;
+  clientEmail?: string;
+  clientAddress?: string;
+  contactPerson?: string;
 }
 
-export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps) {
+interface ProfileSettings {
+  fullName: string;
+  email: string;
+  company: string;
+}
+
+export function BillingTab({ clientId, defaultAmount = "1500", clientName = "", clientEmail = "", clientAddress = "", contactPerson = "" }: BillingTabProps) {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showBulkPaymentDialog, setShowBulkPaymentDialog] = useState(false);
+  const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
+  const [invoiceBilling, setInvoiceBilling] = useState<Billing | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState(defaultAmount);
   const [bulkAmount, setBulkAmount] = useState("");
@@ -35,6 +47,15 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
   const queryClient = useQueryClient();
   const { toast } = useToast();
   useCurrency();
+
+  const profile: ProfileSettings = (() => {
+    const saved = localStorage.getItem("profile");
+    return saved ? JSON.parse(saved) : {
+      fullName: "Aamir Rehman",
+      email: "aamir@example.com",
+      company: "Aamir Rehman Digital Marketing"
+    };
+  })();
 
   const monthlyCharge = parseFloat(defaultAmount) || 1500;
 
@@ -549,17 +570,33 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
                 )}
                 
                 {!isFuture && (
-                  <div className="mt-2">
+                  <div className="mt-2 space-y-1">
                     {billing ? (
-                      <Button
-                        variant={billing.isPaid ? "outline" : "default"}
-                        size="sm"
-                        className={`w-full text-xs ${billing.isPaid ? '' : 'bg-emerald-500 hover:bg-emerald-600'}`}
-                        onClick={() => handleTogglePayment(billing)}
-                        disabled={togglePaymentMutation.isPending}
-                      >
-                        {billing.isPaid ? "Undo" : "Mark Paid"}
-                      </Button>
+                      <>
+                        <Button
+                          variant={billing.isPaid ? "outline" : "default"}
+                          size="sm"
+                          className={`w-full text-xs ${billing.isPaid ? '' : 'bg-emerald-500 hover:bg-emerald-600'}`}
+                          onClick={() => handleTogglePayment(billing)}
+                          disabled={togglePaymentMutation.isPending}
+                        >
+                          {billing.isPaid ? "Undo" : "Mark Paid"}
+                        </Button>
+                        {billing.isPaid && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+                            onClick={() => {
+                              setInvoiceBilling(billing);
+                              setShowInvoiceDialog(true);
+                            }}
+                          >
+                            <FileText className="w-3 h-3 mr-1" />
+                            Invoice
+                          </Button>
+                        )}
+                      </>
                     ) : (
                       <Button
                         variant="outline"
@@ -825,6 +862,216 @@ export function BillingTab({ clientId, defaultAmount = "1500" }: BillingTabProps
             >
               Apply Payment
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invoice Dialog */}
+      <Dialog open={showInvoiceDialog} onOpenChange={setShowInvoiceDialog}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-indigo-500" />
+              Payment Invoice
+            </DialogTitle>
+          </DialogHeader>
+          
+          {invoiceBilling && (
+            <div className="space-y-4">
+              <div className="flex gap-2 mb-4">
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    const printContent = document.getElementById('billing-invoice-content');
+                    if (!printContent) return;
+                    const printWindow = window.open('', '', 'width=800,height=600');
+                    if (!printWindow) return;
+                    printWindow.document.write(`
+                      <html>
+                        <head>
+                          <title>Invoice - ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}</title>
+                          <style>
+                            * { margin: 0; padding: 0; box-sizing: border-box; }
+                            body { font-family: 'Segoe UI', system-ui, sans-serif; padding: 40px; color: #1e293b; }
+                            .invoice-header { display: flex; justify-content: space-between; margin-bottom: 40px; }
+                            .company-info h1 { font-size: 24px; color: #6366f1; margin-bottom: 8px; }
+                            .company-info p { color: #64748b; font-size: 14px; }
+                            .invoice-title { text-align: right; }
+                            .invoice-title h2 { font-size: 32px; color: #1e293b; margin-bottom: 8px; }
+                            .invoice-title p { color: #64748b; }
+                            .invoice-meta { display: flex; justify-content: space-between; margin-bottom: 40px; padding: 20px; background: #f8fafc; border-radius: 8px; }
+                            .meta-section h3 { font-size: 12px; text-transform: uppercase; color: #64748b; margin-bottom: 8px; }
+                            .meta-section p { font-size: 14px; color: #1e293b; }
+                            .invoice-table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
+                            .invoice-table th { text-align: left; padding: 12px; background: #6366f1; color: white; font-size: 12px; text-transform: uppercase; }
+                            .invoice-table td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
+                            .invoice-table .amount { text-align: right; }
+                            .totals { margin-left: auto; width: 300px; }
+                            .totals-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+                            .totals-row.total { font-weight: bold; font-size: 18px; border-bottom: 2px solid #6366f1; }
+                            .footer { margin-top: 60px; text-align: center; color: #64748b; font-size: 12px; }
+                            .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #dcfce7; color: #16a34a; }
+                          </style>
+                        </head>
+                        <body>
+                          ${printContent.innerHTML}
+                        </body>
+                      </html>
+                    `);
+                    printWindow.document.close();
+                    printWindow.print();
+                  }}
+                >
+                  <Printer className="w-4 h-4 mr-2" />
+                  Print
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    const printContent = document.getElementById('billing-invoice-content');
+                    if (!printContent) return;
+                    const printWindow = window.open('', '', 'width=800,height=600');
+                    if (!printWindow) return;
+                    printWindow.document.write(`
+                      <html>
+                        <head>
+                          <title>Invoice - ${getMonthName(invoiceBilling.month)} ${invoiceBilling.year}</title>
+                          <style>
+                            * { margin: 0; padding: 0; box-sizing: border-box; }
+                            body { font-family: 'Segoe UI', system-ui, sans-serif; padding: 40px; color: #1e293b; }
+                            .invoice-header { display: flex; justify-content: space-between; margin-bottom: 40px; }
+                            .company-info h1 { font-size: 24px; color: #6366f1; margin-bottom: 8px; }
+                            .company-info p { color: #64748b; font-size: 14px; }
+                            .invoice-title { text-align: right; }
+                            .invoice-title h2 { font-size: 32px; color: #1e293b; margin-bottom: 8px; }
+                            .invoice-title p { color: #64748b; }
+                            .invoice-meta { display: flex; justify-content: space-between; margin-bottom: 40px; padding: 20px; background: #f8fafc; border-radius: 8px; }
+                            .meta-section h3 { font-size: 12px; text-transform: uppercase; color: #64748b; margin-bottom: 8px; }
+                            .meta-section p { font-size: 14px; color: #1e293b; }
+                            .invoice-table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
+                            .invoice-table th { text-align: left; padding: 12px; background: #6366f1; color: white; font-size: 12px; text-transform: uppercase; }
+                            .invoice-table td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
+                            .totals { margin-left: auto; width: 300px; }
+                            .totals-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+                            .totals-row.total { font-weight: bold; font-size: 18px; border-bottom: 2px solid #6366f1; }
+                            .footer { margin-top: 60px; text-align: center; color: #64748b; font-size: 12px; }
+                            .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #dcfce7; color: #16a34a; }
+                          </style>
+                        </head>
+                        <body>
+                          ${printContent.innerHTML}
+                        </body>
+                      </html>
+                    `);
+                    printWindow.document.close();
+                    printWindow.print();
+                  }}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download PDF
+                </Button>
+              </div>
+
+              <div 
+                id="billing-invoice-content"
+                className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-6 shadow-sm"
+              >
+                {/* Invoice Header */}
+                <div className="invoice-header flex justify-between items-start mb-6">
+                  <div className="company-info">
+                    <h1 className="text-xl font-bold text-indigo-600 mb-1">{profile.company}</h1>
+                    <p className="text-slate-600 dark:text-slate-400 text-sm">{profile.fullName}</p>
+                    <p className="text-slate-600 dark:text-slate-400 text-sm">{profile.email}</p>
+                  </div>
+                  <div className="invoice-title text-right">
+                    <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">INVOICE</h2>
+                    <p className="text-slate-600 dark:text-slate-400 text-sm">
+                      INV-{invoiceBilling.year}{String(invoiceBilling.month).padStart(2, '0')}{String(clientId).padStart(3, '0')}
+                    </p>
+                    <span className="status-badge mt-2 inline-block px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                      PAID
+                    </span>
+                  </div>
+                </div>
+
+                {/* Invoice Meta */}
+                <div className="invoice-meta grid grid-cols-3 gap-4 bg-slate-50 dark:bg-slate-900 rounded-lg p-4 mb-6 text-sm">
+                  <div className="meta-section">
+                    <h3 className="text-xs uppercase text-slate-500 dark:text-slate-400 mb-1 font-semibold">Bill To</h3>
+                    <p className="font-semibold text-slate-900 dark:text-white">{clientName || `Client #${clientId}`}</p>
+                    {contactPerson && <p className="text-slate-600 dark:text-slate-400">{contactPerson}</p>}
+                    {clientEmail && <p className="text-slate-600 dark:text-slate-400">{clientEmail}</p>}
+                  </div>
+                  <div className="meta-section">
+                    <h3 className="text-xs uppercase text-slate-500 dark:text-slate-400 mb-1 font-semibold">Payment Date</h3>
+                    <p className="text-slate-900 dark:text-white">
+                      {invoiceBilling.paidDate 
+                        ? new Date(invoiceBilling.paidDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                        : 'N/A'
+                      }
+                    </p>
+                  </div>
+                  <div className="meta-section">
+                    <h3 className="text-xs uppercase text-slate-500 dark:text-slate-400 mb-1 font-semibold">Billing Period</h3>
+                    <p className="text-slate-900 dark:text-white flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {getMonthName(invoiceBilling.month)} {invoiceBilling.year}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Invoice Table */}
+                <table className="invoice-table w-full mb-6 text-sm">
+                  <thead>
+                    <tr className="bg-indigo-600 text-white">
+                      <th className="text-left p-2 rounded-tl-lg">Description</th>
+                      <th className="text-center p-2">Qty</th>
+                      <th className="text-right p-2">Rate</th>
+                      <th className="text-right p-2 rounded-tr-lg">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-slate-200 dark:border-slate-700">
+                      <td className="p-2">
+                        <p className="font-medium text-slate-900 dark:text-white">Digital Marketing Services</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">Monthly service - {getMonthName(invoiceBilling.month)} {invoiceBilling.year}</p>
+                      </td>
+                      <td className="text-center p-2 text-slate-900 dark:text-white">1</td>
+                      <td className="text-right p-2 text-slate-900 dark:text-white">{formatCurrency(parseFloat(invoiceBilling.amount))}</td>
+                      <td className="text-right p-2 font-medium text-slate-900 dark:text-white">{formatCurrency(parseFloat(invoiceBilling.amount))}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {/* Totals */}
+                <div className="totals ml-auto w-full md:w-64 text-sm">
+                  <div className="totals-row flex justify-between py-2 border-b border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-600 dark:text-slate-400">Subtotal</span>
+                    <span className="text-slate-900 dark:text-white">{formatCurrency(parseFloat(invoiceBilling.amount))}</span>
+                  </div>
+                  <div className="totals-row flex justify-between py-2 border-b border-slate-200 dark:border-slate-700">
+                    <span className="text-emerald-600">Amount Paid</span>
+                    <span className="text-emerald-600">{formatCurrency(parseFloat(invoiceBilling.amount))}</span>
+                  </div>
+                  <div className="totals-row total flex justify-between py-2 border-b-2 border-indigo-600 font-bold">
+                    <span className="text-slate-900 dark:text-white">Balance Due</span>
+                    <span className="text-indigo-600">{formatCurrency(0)}</span>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="footer mt-8 pt-4 border-t border-slate-200 dark:border-slate-700 text-center">
+                  <p className="text-slate-600 dark:text-slate-400 text-xs mb-1">Thank you for your business!</p>
+                  <p className="text-slate-500 dark:text-slate-500 text-xs">
+                    For questions, contact {profile.email}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowInvoiceDialog(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
