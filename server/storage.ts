@@ -1,7 +1,8 @@
-import { eq, desc, ilike, or, and, sql } from "drizzle-orm";
+import { eq, desc, asc, ilike, or, and, sql, lte, gte, lt, gt, inArray, isNull, isNotNull } from "drizzle-orm";
 import { db } from "./db";
 import {
   clients, billing, campaigns, clientNotes, clientFiles, activityLog, users, invoiceTokens,
+  tasks, taskComments, notifications,
   type Client, type InsertClient,
   type Billing, type InsertBilling,
   type Campaign, type InsertCampaign,
@@ -9,7 +10,10 @@ import {
   type ClientFile, type InsertClientFile,
   type ActivityLog, type InsertActivityLog,
   type User, type InsertUser,
-  type InvoiceToken, type InsertInvoiceToken
+  type InvoiceToken, type InsertInvoiceToken,
+  type Task, type InsertTask,
+  type TaskComment, type InsertTaskComment,
+  type Notification, type InsertNotification
 } from "@shared/schema";
 
 export interface IStorage {
@@ -60,6 +64,61 @@ export interface IStorage {
 
   getAgingReport(): Promise<{ bucket: string; count: number; total: number }[]>;
   getReconciliation(): Promise<{ method: string; count: number; total: number }[]>;
+
+  getTasks(filters?: TaskFilters): Promise<TaskWithRelations[]>;
+  getTask(id: number): Promise<TaskWithRelations | undefined>;
+  createTask(task: InsertTask): Promise<Task>;
+  updateTask(id: number, data: Partial<InsertTask>): Promise<Task | undefined>;
+  deleteTask(id: number): Promise<boolean>;
+  duplicateTask(id: number): Promise<Task | undefined>;
+  bulkUpdateTaskStatus(ids: number[], status: string): Promise<number>;
+  getTasksByDateRange(start: Date, end: Date): Promise<TaskWithRelations[]>;
+  getMyDayTasks(userId?: number): Promise<TaskWithRelations[]>;
+  getOverdueTasksList(): Promise<TaskWithRelations[]>;
+  getUpcomingTasks(days: number): Promise<TaskWithRelations[]>;
+  getTaskStats(): Promise<TaskStats>;
+  getTaskAgingReport(): Promise<{ bucket: string; count: number }[]>;
+  getCompletionRateStats(days: number): Promise<{ date: string; completed: number; created: number }[]>;
+  getProductivityMetrics(): Promise<{ userId: number; userName: string; completed: number; overdue: number; avgTime: number }[]>;
+
+  getTaskComments(taskId: number): Promise<TaskComment[]>;
+  createTaskComment(comment: InsertTaskComment): Promise<TaskComment>;
+
+  getNotifications(userId: number): Promise<Notification[]>;
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  markNotificationRead(id: number): Promise<void>;
+  markAllNotificationsRead(userId: number): Promise<void>;
+}
+
+export interface TaskFilters {
+  status?: string;
+  priority?: string;
+  clientId?: number;
+  campaignId?: number;
+  assignedTo?: number;
+  label?: string;
+  search?: string;
+  dueBefore?: Date;
+  dueAfter?: Date;
+}
+
+export interface TaskWithRelations extends Task {
+  clientName?: string | null;
+  campaignName?: string | null;
+  assignedToName?: string | null;
+  createdByName?: string | null;
+}
+
+export interface TaskStats {
+  total: number;
+  todo: number;
+  inProgress: number;
+  waiting: number;
+  review: number;
+  done: number;
+  overdue: number;
+  completedToday: number;
+  dueToday: number;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -549,6 +608,287 @@ export class DatabaseStorage implements IStorage {
       method,
       ...data,
     }));
+  }
+
+  private async enrichTasks(rawTasks: Task[]): Promise<TaskWithRelations[]> {
+    const allClients = await db.select({ id: clients.id, name: clients.name }).from(clients);
+    const allCampaigns = await db.select({ id: campaigns.id, name: campaigns.name }).from(campaigns);
+    const allUsers = await db.select({ id: users.id, fullName: users.fullName }).from(users);
+
+    const clientMap = new Map(allClients.map(c => [c.id, c.name]));
+    const campaignMap = new Map(allCampaigns.map(c => [c.id, c.name]));
+    const userMap = new Map(allUsers.map(u => [u.id, u.fullName]));
+
+    return rawTasks.map(t => ({
+      ...t,
+      clientName: t.clientId ? clientMap.get(t.clientId) || null : null,
+      campaignName: t.campaignId ? campaignMap.get(t.campaignId) || null : null,
+      assignedToName: t.assignedTo ? userMap.get(t.assignedTo) || null : null,
+      createdByName: t.createdBy ? userMap.get(t.createdBy) || null : null,
+    }));
+  }
+
+  async getTasks(filters?: TaskFilters): Promise<TaskWithRelations[]> {
+    const conditions = [];
+
+    if (filters?.status) conditions.push(eq(tasks.status, filters.status));
+    if (filters?.priority) conditions.push(eq(tasks.priority, filters.priority));
+    if (filters?.clientId) conditions.push(eq(tasks.clientId, filters.clientId));
+    if (filters?.campaignId) conditions.push(eq(tasks.campaignId, filters.campaignId));
+    if (filters?.assignedTo) conditions.push(eq(tasks.assignedTo, filters.assignedTo));
+    if (filters?.dueBefore) conditions.push(lte(tasks.dueDate, filters.dueBefore));
+    if (filters?.dueAfter) conditions.push(gte(tasks.dueDate, filters.dueAfter));
+    if (filters?.search) {
+      const p = `%${filters.search}%`;
+      conditions.push(or(ilike(tasks.title, p), ilike(tasks.description, p)));
+    }
+
+    let query = db.select().from(tasks);
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+    const rawTasks = await (query as any).orderBy(asc(tasks.sortOrder), desc(tasks.createdAt));
+    return this.enrichTasks(rawTasks);
+  }
+
+  async getTask(id: number): Promise<TaskWithRelations | undefined> {
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
+    if (!task) return undefined;
+    const [enriched] = await this.enrichTasks([task]);
+    return enriched;
+  }
+
+  async createTask(insertTask: InsertTask): Promise<Task> {
+    const [task] = await db.insert(tasks).values(insertTask).returning();
+    return task;
+  }
+
+  async updateTask(id: number, data: Partial<InsertTask>): Promise<Task | undefined> {
+    const [task] = await db.update(tasks).set({ ...data, updatedAt: new Date() }).where(eq(tasks.id, id)).returning();
+    return task;
+  }
+
+  async deleteTask(id: number): Promise<boolean> {
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
+    if (!task) return false;
+    await db.delete(taskComments).where(eq(taskComments.taskId, id));
+    await db.delete(notifications).where(eq(notifications.taskId, id));
+    await db.delete(tasks).where(eq(tasks.id, id));
+    return true;
+  }
+
+  async duplicateTask(id: number): Promise<Task | undefined> {
+    const original = await this.getTask(id);
+    if (!original) return undefined;
+    const { id: _id, createdAt: _ca, updatedAt: _ua, clientName: _cn, campaignName: _cmn, assignedToName: _an, createdByName: _cbn, completedAt: _comp, ...rest } = original;
+    const [task] = await db.insert(tasks).values({
+      ...rest,
+      title: `${rest.title} (copy)`,
+      status: "todo",
+    }).returning();
+    return task;
+  }
+
+  async bulkUpdateTaskStatus(ids: number[], status: string): Promise<number> {
+    if (ids.length === 0) return 0;
+    const updateData: any = { status, updatedAt: new Date() };
+    if (status === "done") {
+      updateData.completedAt = new Date();
+    }
+    const result = await db.update(tasks).set(updateData).where(inArray(tasks.id, ids)).returning();
+    return result.length;
+  }
+
+  async getTasksByDateRange(start: Date, end: Date): Promise<TaskWithRelations[]> {
+    const rawTasks = await db.select().from(tasks).where(
+      and(
+        isNotNull(tasks.dueDate),
+        gte(tasks.dueDate, start),
+        lte(tasks.dueDate, end)
+      )
+    ).orderBy(asc(tasks.dueDate));
+    return this.enrichTasks(rawTasks);
+  }
+
+  async getMyDayTasks(userId?: number): Promise<TaskWithRelations[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const conditions = [
+      or(
+        eq(tasks.status, "todo"),
+        eq(tasks.status, "in_progress"),
+        eq(tasks.status, "waiting"),
+        eq(tasks.status, "review")
+      ),
+      or(
+        and(isNotNull(tasks.dueDate), lte(tasks.dueDate, tomorrow)),
+        isNull(tasks.dueDate)
+      )
+    ];
+
+    if (userId) {
+      conditions.push(eq(tasks.assignedTo, userId));
+    }
+
+    const rawTasks = await db.select().from(tasks).where(and(...conditions)).orderBy(asc(tasks.dueDate), asc(tasks.sortOrder));
+    return this.enrichTasks(rawTasks);
+  }
+
+  async getOverdueTasksList(): Promise<TaskWithRelations[]> {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    const rawTasks = await db.select().from(tasks).where(
+      and(
+        isNotNull(tasks.dueDate),
+        lt(tasks.dueDate, now),
+        or(
+          eq(tasks.status, "todo"),
+          eq(tasks.status, "in_progress"),
+          eq(tasks.status, "waiting"),
+          eq(tasks.status, "review")
+        )
+      )
+    ).orderBy(asc(tasks.dueDate));
+    return this.enrichTasks(rawTasks);
+  }
+
+  async getUpcomingTasks(days: number): Promise<TaskWithRelations[]> {
+    const now = new Date();
+    const future = new Date();
+    future.setDate(future.getDate() + days);
+
+    const rawTasks = await db.select().from(tasks).where(
+      and(
+        isNotNull(tasks.dueDate),
+        gte(tasks.dueDate, now),
+        lte(tasks.dueDate, future),
+        or(
+          eq(tasks.status, "todo"),
+          eq(tasks.status, "in_progress"),
+          eq(tasks.status, "waiting"),
+          eq(tasks.status, "review")
+        )
+      )
+    ).orderBy(asc(tasks.dueDate));
+    return this.enrichTasks(rawTasks);
+  }
+
+  async getTaskStats(): Promise<TaskStats> {
+    const allTasks = await db.select().from(tasks);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const todayStart = new Date(now);
+    const todayEnd = new Date(tomorrow);
+
+    return {
+      total: allTasks.length,
+      todo: allTasks.filter(t => t.status === "todo").length,
+      inProgress: allTasks.filter(t => t.status === "in_progress").length,
+      waiting: allTasks.filter(t => t.status === "waiting").length,
+      review: allTasks.filter(t => t.status === "review").length,
+      done: allTasks.filter(t => t.status === "done").length,
+      overdue: allTasks.filter(t => t.dueDate && t.dueDate < now && t.status !== "done").length,
+      completedToday: allTasks.filter(t => t.completedAt && t.completedAt >= todayStart && t.completedAt < todayEnd).length,
+      dueToday: allTasks.filter(t => t.dueDate && t.dueDate >= todayStart && t.dueDate < todayEnd && t.status !== "done").length,
+    };
+  }
+
+  async getTaskAgingReport(): Promise<{ bucket: string; count: number }[]> {
+    const now = new Date();
+    const openTasks = await db.select().from(tasks).where(
+      and(
+        isNotNull(tasks.dueDate),
+        or(eq(tasks.status, "todo"), eq(tasks.status, "in_progress"), eq(tasks.status, "waiting"), eq(tasks.status, "review"))
+      )
+    );
+
+    const buckets: Record<string, number> = {
+      "0-7 days": 0,
+      "8-15 days": 0,
+      "16-30 days": 0,
+      "30+ days": 0,
+    };
+
+    for (const t of openTasks) {
+      if (!t.dueDate) continue;
+      const daysOld = Math.max(0, Math.floor((now.getTime() - t.dueDate.getTime()) / (1000 * 60 * 60 * 24)));
+      if (daysOld <= 7) buckets["0-7 days"]++;
+      else if (daysOld <= 15) buckets["8-15 days"]++;
+      else if (daysOld <= 30) buckets["16-30 days"]++;
+      else buckets["30+ days"]++;
+    }
+
+    return Object.entries(buckets).map(([bucket, count]) => ({ bucket, count }));
+  }
+
+  async getCompletionRateStats(days: number): Promise<{ date: string; completed: number; created: number }[]> {
+    const results: { date: string; completed: number; created: number }[] = [];
+    const allTasks = await db.select().from(tasks);
+
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      date.setHours(0, 0, 0, 0);
+      const nextDay = new Date(date);
+      nextDay.setDate(nextDay.getDate() + 1);
+
+      const dateStr = date.toISOString().split('T')[0];
+      const completed = allTasks.filter(t => t.completedAt && t.completedAt >= date && t.completedAt < nextDay).length;
+      const created = allTasks.filter(t => t.createdAt >= date && t.createdAt < nextDay).length;
+      results.push({ date: dateStr, completed, created });
+    }
+    return results;
+  }
+
+  async getProductivityMetrics(): Promise<{ userId: number; userName: string; completed: number; overdue: number; avgTime: number }[]> {
+    const allUsers = await db.select().from(users);
+    const allTasks = await db.select().from(tasks);
+    const now = new Date();
+
+    return allUsers.map(u => {
+      const userTasks = allTasks.filter(t => t.assignedTo === u.id);
+      const completed = userTasks.filter(t => t.status === "done").length;
+      const overdue = userTasks.filter(t => t.dueDate && t.dueDate < now && t.status !== "done").length;
+      const tasksWithTime = userTasks.filter(t => t.timeActual);
+      const avgTime = tasksWithTime.length > 0
+        ? tasksWithTime.reduce((sum, t) => sum + (t.timeActual || 0), 0) / tasksWithTime.length
+        : 0;
+
+      return { userId: u.id, userName: u.fullName, completed, overdue, avgTime: Math.round(avgTime) };
+    });
+  }
+
+  async getTaskComments(taskId: number): Promise<TaskComment[]> {
+    return await db.select().from(taskComments).where(eq(taskComments.taskId, taskId)).orderBy(asc(taskComments.createdAt));
+  }
+
+  async createTaskComment(comment: InsertTaskComment): Promise<TaskComment> {
+    const [tc] = await db.insert(taskComments).values(comment).returning();
+    return tc;
+  }
+
+  async getNotifications(userId: number): Promise<Notification[]> {
+    return await db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt));
+  }
+
+  async createNotification(notification: InsertNotification): Promise<Notification> {
+    const [n] = await db.insert(notifications).values(notification).returning();
+    return n;
+  }
+
+  async markNotificationRead(id: number): Promise<void> {
+    await db.update(notifications).set({ isRead: true }).where(eq(notifications.id, id));
+  }
+
+  async markAllNotificationsRead(userId: number): Promise<void> {
+    await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, userId));
   }
 }
 

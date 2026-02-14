@@ -102,6 +102,54 @@ export const activityLog = pgTable("activity_log", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const tasks = pgTable("tasks", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("todo"),
+  priority: text("priority").notNull().default("medium"),
+  clientId: integer("client_id").references(() => clients.id),
+  campaignId: integer("campaign_id").references(() => campaigns.id),
+  assignedTo: integer("assigned_to").references(() => users.id),
+  createdBy: integer("created_by").references(() => users.id),
+  dueDate: timestamp("due_date"),
+  dueTime: text("due_time"),
+  completedAt: timestamp("completed_at"),
+  labels: text("labels").array(),
+  parentTaskId: integer("parent_task_id"),
+  subtasks: jsonb("subtasks"),
+  blockedBy: integer("blocked_by_task_id"),
+  blocks: integer("blocks_task_id"),
+  isRecurring: boolean("is_recurring").default(false),
+  recurringPattern: text("recurring_pattern"),
+  timeEstimate: integer("time_estimate_minutes"),
+  timeActual: integer("time_actual_minutes"),
+  slaDeadline: timestamp("sla_deadline"),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const taskComments = pgTable("task_comments", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").references(() => tasks.id).notNull(),
+  userId: integer("user_id").references(() => users.id),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  taskId: integer("task_id").references(() => tasks.id),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").default(false).notNull(),
+  scheduledFor: timestamp("scheduled_for"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const invoiceTokens = pgTable("invoice_tokens", {
   id: serial("id").primaryKey(),
   token: text("token").notNull().unique(),
@@ -153,6 +201,22 @@ export const insertInvoiceTokenSchema = createInsertSchema(invoiceTokens).omit({
   createdAt: true,
 });
 
+export const insertTaskSchema = createInsertSchema(tasks).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertTaskCommentSchema = createInsertSchema(taskComments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 
@@ -176,3 +240,12 @@ export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
 
 export type InvoiceToken = typeof invoiceTokens.$inferSelect;
 export type InsertInvoiceToken = z.infer<typeof insertInvoiceTokenSchema>;
+
+export type Task = typeof tasks.$inferSelect;
+export type InsertTask = z.infer<typeof insertTaskSchema>;
+
+export type TaskComment = typeof taskComments.$inferSelect;
+export type InsertTaskComment = z.infer<typeof insertTaskCommentSchema>;
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;

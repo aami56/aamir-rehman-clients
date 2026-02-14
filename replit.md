@@ -26,9 +26,11 @@ Preferred communication style: Simple, everyday language.
 - **Development Server**: Vite dev server with HMR, proxied through Express
 
 ### Data Layer
-- **Database**: PostgreSQL (via Neon serverless driver)
+- **Database**: PostgreSQL (built-in Replit Postgres with pg driver)
 - **Schema Definition**: Drizzle schema in `shared/schema.ts` with Zod validation schemas generated via drizzle-zod
 - **Migrations**: Drizzle Kit for schema migrations (`npm run db:push`)
+- **Authentication**: Passport.js with local strategy, session-based auth with MemoryStore
+- **Default Admin**: username: admin, password: admin123
 
 ### Project Structure
 ```
@@ -54,10 +56,14 @@ Preferred communication style: Simple, everyday language.
 - **Component Architecture**: Compound components with shadcn/ui patterns for consistent UI
 - **API Layer**: Centralized fetch wrapper in `queryClient.ts` for consistent error handling
 
+### Task Management Module (Feb 2026)
+- Tables: tasks, task_comments, notifications
+- 45 functions including: CRUD, Kanban, calendar, reports, subtasks, recurring, SLA, time tracking, bulk ops, CSV export
+
 ## External Dependencies
 
 ### Database
-- **PostgreSQL**: Primary database via `@neondatabase/serverless` driver
+- **PostgreSQL**: Built-in Replit Postgres with pg driver
 - **Connection**: Requires `DATABASE_URL` environment variable
 
 ### UI Framework Dependencies

@@ -1,7 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertClientSchema, insertBillingSchema, insertCampaignSchema, insertClientNoteSchema } from "@shared/schema";
+import { insertClientSchema, insertBillingSchema, insertCampaignSchema, insertClientNoteSchema, insertTaskSchema, insertTaskCommentSchema, users } from "@shared/schema";
+import { db } from "./db";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -424,12 +425,304 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/tasks/overdue", requireAuth, async (req, res) => {
+  app.get("/api/tasks/overdue-legacy", requireAuth, async (req, res) => {
     try {
       const tasks = await storage.getOverdueTasks();
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch overdue tasks" });
+    }
+  });
+
+  app.get("/api/tasks", requireAuth, async (req, res) => {
+    try {
+      const { status, priority, clientId, campaignId, assignedTo, search, label } = req.query;
+      const filters: any = {};
+      if (status) filters.status = status;
+      if (priority) filters.priority = priority;
+      if (clientId) filters.clientId = parseInt(clientId as string);
+      if (campaignId) filters.campaignId = parseInt(campaignId as string);
+      if (assignedTo) filters.assignedTo = parseInt(assignedTo as string);
+      if (search) filters.search = search;
+      if (label) filters.label = label;
+      const result = await storage.getTasks(filters);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch tasks" });
+    }
+  });
+
+  app.get("/api/tasks/stats", requireAuth, async (req, res) => {
+    try {
+      const stats = await storage.getTaskStats();
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch task stats" });
+    }
+  });
+
+  app.get("/api/tasks/my-day", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.user as any)?.id;
+      const result = await storage.getMyDayTasks(userId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch my day tasks" });
+    }
+  });
+
+  app.get("/api/tasks/overdue", requireAuth, async (req, res) => {
+    try {
+      const result = await storage.getOverdueTasksList();
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch overdue tasks" });
+    }
+  });
+
+  app.get("/api/tasks/upcoming/:days", requireAuth, async (req, res) => {
+    try {
+      const days = parseInt(req.params.days) || 7;
+      const result = await storage.getUpcomingTasks(days);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch upcoming tasks" });
+    }
+  });
+
+  app.get("/api/tasks/calendar", requireAuth, async (req, res) => {
+    try {
+      const { start, end } = req.query;
+      if (!start || !end) return res.status(400).json({ message: "start and end dates required" });
+      const result = await storage.getTasksByDateRange(new Date(start as string), new Date(end as string));
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch calendar tasks" });
+    }
+  });
+
+  app.get("/api/tasks/aging", requireAuth, async (req, res) => {
+    try {
+      const report = await storage.getTaskAgingReport();
+      res.json(report);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch task aging report" });
+    }
+  });
+
+  app.get("/api/tasks/completion-rate", requireAuth, async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const stats = await storage.getCompletionRateStats(days);
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch completion rate" });
+    }
+  });
+
+  app.get("/api/tasks/productivity", requireAuth, async (req, res) => {
+    try {
+      const metrics = await storage.getProductivityMetrics();
+      res.json(metrics);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch productivity metrics" });
+    }
+  });
+
+  app.get("/api/tasks/export", requireAuth, async (req, res) => {
+    try {
+      const allTasks = await storage.getTasks();
+      const format = req.query.format || "csv";
+
+      if (format === "csv") {
+        const headers = ['ID', 'Title', 'Status', 'Priority', 'Client', 'Campaign', 'Assigned To', 'Due Date', 'Labels', 'Time Estimate', 'Time Actual', 'Created At'];
+        const csvRows = [headers.join(',')];
+        allTasks.forEach(t => {
+          csvRows.push([
+            t.id,
+            `"${(t.title || '').replace(/"/g, '""')}"`,
+            t.status,
+            t.priority,
+            `"${t.clientName || ''}"`,
+            `"${t.campaignName || ''}"`,
+            `"${t.assignedToName || ''}"`,
+            t.dueDate ? new Date(t.dueDate).toISOString().split('T')[0] : '',
+            `"${(t.labels || []).join('; ')}"`,
+            t.timeEstimate || '',
+            t.timeActual || '',
+            new Date(t.createdAt).toISOString().split('T')[0],
+          ].join(','));
+        });
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="tasks.csv"');
+        res.send(csvRows.join('\n'));
+      } else {
+        res.json(allTasks);
+      }
+    } catch (error) {
+      res.status(500).json({ message: "Failed to export tasks" });
+    }
+  });
+
+  app.get("/api/tasks/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const task = await storage.getTask(id);
+      if (!task) return res.status(404).json({ message: "Task not found" });
+      res.json(task);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch task" });
+    }
+  });
+
+  app.post("/api/tasks", requireAuth, async (req, res) => {
+    try {
+      const body = { ...req.body };
+      body.createdBy = (req.user as any)?.id;
+      if (body.dueDate && typeof body.dueDate === 'string') body.dueDate = new Date(body.dueDate);
+      if (body.slaDeadline && typeof body.slaDeadline === 'string') body.slaDeadline = new Date(body.slaDeadline);
+      const task = await storage.createTask(body);
+      res.status(201).json(task);
+    } catch (error: any) {
+      res.status(400).json({ message: "Invalid task data", error: error.message });
+    }
+  });
+
+  app.put("/api/tasks/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const body = { ...req.body };
+      if (body.dueDate && typeof body.dueDate === 'string') body.dueDate = new Date(body.dueDate);
+      if (body.slaDeadline && typeof body.slaDeadline === 'string') body.slaDeadline = new Date(body.slaDeadline);
+      if (body.status === 'done' && !body.completedAt) {
+        body.completedAt = new Date();
+      }
+      if (body.status && body.status !== 'done') {
+        body.completedAt = null;
+      }
+      const task = await storage.updateTask(id, body);
+      if (!task) return res.status(404).json({ message: "Task not found" });
+      res.json(task);
+    } catch (error: any) {
+      res.status(400).json({ message: "Invalid task data", error: error.message });
+    }
+  });
+
+  app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const success = await storage.deleteTask(id);
+      if (!success) return res.status(404).json({ message: "Task not found" });
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete task" });
+    }
+  });
+
+  app.post("/api/tasks/:id/duplicate", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const task = await storage.duplicateTask(id);
+      if (!task) return res.status(404).json({ message: "Task not found" });
+      res.status(201).json(task);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to duplicate task" });
+    }
+  });
+
+  app.post("/api/tasks/bulk-status", requireAuth, async (req, res) => {
+    try {
+      const { ids, status } = req.body;
+      if (!ids || !Array.isArray(ids) || !status) {
+        return res.status(400).json({ message: "ids array and status are required" });
+      }
+      const updated = await storage.bulkUpdateTaskStatus(ids, status);
+      res.json({ updated });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to bulk update tasks" });
+    }
+  });
+
+  app.post("/api/tasks/:id/snooze", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { days } = req.body;
+      const newDate = new Date();
+      newDate.setDate(newDate.getDate() + (days || 1));
+      const task = await storage.updateTask(id, { dueDate: newDate });
+      if (!task) return res.status(404).json({ message: "Task not found" });
+      res.json(task);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to snooze task" });
+    }
+  });
+
+  app.get("/api/tasks/:id/comments", requireAuth, async (req, res) => {
+    try {
+      const taskId = parseInt(req.params.id);
+      const comments = await storage.getTaskComments(taskId);
+      res.json(comments);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch comments" });
+    }
+  });
+
+  app.post("/api/tasks/:id/comments", requireAuth, async (req, res) => {
+    try {
+      const taskId = parseInt(req.params.id);
+      const userId = (req.user as any)?.id;
+      const comment = await storage.createTaskComment({
+        taskId,
+        userId,
+        content: req.body.content,
+      });
+      res.status(201).json(comment);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create comment" });
+    }
+  });
+
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.user as any)?.id;
+      const result = await storage.getNotifications(userId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch notifications" });
+    }
+  });
+
+  app.put("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    try {
+      await storage.markNotificationRead(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to mark notification read" });
+    }
+  });
+
+  app.put("/api/notifications/read-all", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.user as any)?.id;
+      await storage.markAllNotificationsRead(userId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to mark all notifications read" });
+    }
+  });
+
+  app.get("/api/users", requireAuth, async (req, res) => {
+    try {
+      const allUsers = await db.select({
+        id: users.id,
+        username: users.username,
+        fullName: users.fullName,
+        email: users.email,
+        role: users.role,
+      }).from(users);
+      res.json(allUsers);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch users" });
     }
   });
 
