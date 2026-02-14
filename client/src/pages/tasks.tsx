@@ -934,20 +934,20 @@ export default function Tasks() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Assign to Client</Label>
-                  <Select value={form.clientId} onValueChange={v => setForm(f => ({ ...f, clientId: v }))}>
+                  <Select value={form.clientId || "none"} onValueChange={v => setForm(f => ({ ...f, clientId: v === "none" ? "" : v }))}>
                     <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {clients.map((c: any) => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label>Assign to Campaign</Label>
-                  <Select value={form.campaignId} onValueChange={v => setForm(f => ({ ...f, campaignId: v }))}>
+                  <Select value={form.campaignId || "none"} onValueChange={v => setForm(f => ({ ...f, campaignId: v === "none" ? "" : v }))}>
                     <SelectTrigger><SelectValue placeholder="Select campaign" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {campaignsList.map((c: any) => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -957,10 +957,10 @@ export default function Tasks() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Assign to User</Label>
-                  <Select value={form.assignedTo} onValueChange={v => setForm(f => ({ ...f, assignedTo: v }))}>
+                  <Select value={form.assignedTo || "none"} onValueChange={v => setForm(f => ({ ...f, assignedTo: v === "none" ? "" : v }))}>
                     <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Unassigned</SelectItem>
+                      <SelectItem value="none">Unassigned</SelectItem>
                       {usersList.map((u: any) => <SelectItem key={u.id} value={u.id.toString()}>{u.fullName}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -992,10 +992,10 @@ export default function Tasks() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Blocked By (Task ID)</Label>
-                  <Select value={form.blockedBy} onValueChange={v => setForm(f => ({ ...f, blockedBy: v }))}>
+                  <Select value={form.blockedBy || "none"} onValueChange={v => setForm(f => ({ ...f, blockedBy: v === "none" ? "" : v }))}>
                     <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {allTasks.filter(t => t.id !== editingTask?.id).map((t: any) => (
                         <SelectItem key={t.id} value={t.id.toString()}>#{t.id} - {t.title}</SelectItem>
                       ))}
@@ -1004,10 +1004,10 @@ export default function Tasks() {
                 </div>
                 <div>
                   <Label>Blocks (Task ID)</Label>
-                  <Select value={form.blocks} onValueChange={v => setForm(f => ({ ...f, blocks: v }))}>
+                  <Select value={form.blocks || "none"} onValueChange={v => setForm(f => ({ ...f, blocks: v === "none" ? "" : v }))}>
                     <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {allTasks.filter(t => t.id !== editingTask?.id).map((t: any) => (
                         <SelectItem key={t.id} value={t.id.toString()}>#{t.id} - {t.title}</SelectItem>
                       ))}
