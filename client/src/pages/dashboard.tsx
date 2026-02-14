@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { StatsCards } from "@/components/dashboard/stats-cards";
@@ -9,7 +9,9 @@ import { ClientForm } from "@/components/client/client-form";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus } from "lucide-react";
-import { debounce } from "@/lib/utils";
+import { debounce, getCurrentMonthYear, getMonthName } from "@/lib/utils";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { Client } from "@shared/schema";
 
 export default function Dashboard() {
@@ -46,9 +48,31 @@ export default function Dashboard() {
     setShowAddClient(true);
   };
 
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const generateMutation = useMutation({
+    mutationFn: async () => {
+      const { month, year } = getCurrentMonthYear();
+      const res = await apiRequest("POST", "/api/billing/generate-monthly", { month, year });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      qc.invalidateQueries({ queryKey: ["/api/billing"] });
+      const { month, year } = getCurrentMonthYear();
+      toast({
+        title: "Invoices Generated",
+        description: `${data.created} created, ${data.skipped} skipped for ${getMonthName(month)} ${year}`,
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleGenerateInvoices = () => {
-    // TODO: Generate invoices functionality
-    console.log("Generate invoices clicked");
+    generateMutation.mutate();
   };
 
   const defaultStats = {

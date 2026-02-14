@@ -1,6 +1,16 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, decimal } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, decimal, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  password: text("password").notNull(),
+  fullName: text("full_name").notNull(),
+  email: text("email").notNull(),
+  role: text("role").notNull().default("manager"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 export const clients = pgTable("clients", {
   id: serial("id").primaryKey(),
@@ -11,7 +21,7 @@ export const clients = pgTable("clients", {
   industry: text("industry"),
   googleAdAccountId: text("google_ad_account_id"),
   monthlyServiceCharge: decimal("monthly_service_charge", { precision: 10, scale: 2 }).notNull(),
-  status: text("status").notNull().default("active"), // active, inactive, pending, overdue
+  status: text("status").notNull().default("active"),
   contactPerson: text("contact_person"),
   address: text("address"),
   notes: text("notes"),
@@ -22,7 +32,7 @@ export const clients = pgTable("clients", {
 export const billing = pgTable("billing", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").references(() => clients.id).notNull(),
-  month: integer("month").notNull(), // 1-12
+  month: integer("month").notNull(),
   year: integer("year").notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }).default("0").notNull(),
@@ -30,6 +40,9 @@ export const billing = pgTable("billing", {
   paidDate: timestamp("paid_date"),
   paymentMethod: text("payment_method"),
   invoiceNumber: text("invoice_number"),
+  dueDate: timestamp("due_date"),
+  lateFeeAmount: decimal("late_fee_amount", { precision: 10, scale: 2 }).default("0"),
+  lateFeeAppliedAt: timestamp("late_fee_applied_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -38,15 +51,16 @@ export const campaigns = pgTable("campaigns", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").references(() => clients.id).notNull(),
   name: text("name").notNull(),
-  platform: text("platform").notNull(), // google-ads, facebook-ads, etc.
+  platform: text("platform").notNull(),
   budget: decimal("budget", { precision: 10, scale: 2 }).notNull(),
   startDate: timestamp("start_date").notNull(),
   endDate: timestamp("end_date"),
-  status: text("status").notNull().default("active"), // active, paused, completed
+  status: text("status").notNull().default("active"),
   description: text("description"),
   targetAudience: text("target_audience"),
   keywords: text("keywords").array(),
-  performance: jsonb("performance"), // metrics data
+  performance: jsonb("performance"),
+  roiScore: decimal("roi_score", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -56,8 +70,8 @@ export const clientNotes = pgTable("client_notes", {
   clientId: integer("client_id").references(() => clients.id).notNull(),
   title: text("title").notNull(),
   content: text("content").notNull(),
-  type: text("type").default("note"), // note, reminder, task
-  priority: text("priority").default("normal"), // low, normal, high
+  type: text("type").default("note"),
+  priority: text("priority").default("normal"),
   isCompleted: boolean("is_completed").default(false),
   dueDate: timestamp("due_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -73,6 +87,7 @@ export const clientFiles = pgTable("client_files", {
   filePath: text("file_path").notNull(),
   uploadedBy: text("uploaded_by"),
   description: text("description"),
+  category: text("category").default("general"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -81,13 +96,26 @@ export const activityLog = pgTable("activity_log", {
   clientId: integer("client_id").references(() => clients.id).notNull(),
   action: text("action").notNull(),
   description: text("description").notNull(),
-  entityType: text("entity_type"), // client, campaign, billing, etc.
+  entityType: text("entity_type"),
   entityId: integer("entity_id"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// Insert schemas
+export const invoiceTokens = pgTable("invoice_tokens", {
+  id: serial("id").primaryKey(),
+  token: text("token").notNull().unique(),
+  billingId: integer("billing_id").references(() => billing.id).notNull(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertClientSchema = createInsertSchema(clients).omit({
   id: true,
   createdAt: true,
@@ -120,7 +148,14 @@ export const insertActivityLogSchema = createInsertSchema(activityLog).omit({
   createdAt: true,
 });
 
-// Types
+export const insertInvoiceTokenSchema = createInsertSchema(invoiceTokens).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+
 export type Client = typeof clients.$inferSelect;
 export type InsertClient = z.infer<typeof insertClientSchema>;
 
@@ -138,3 +173,6 @@ export type InsertClientFile = z.infer<typeof insertClientFileSchema>;
 
 export type ActivityLog = typeof activityLog.$inferSelect;
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
+
+export type InvoiceToken = typeof invoiceTokens.$inferSelect;
+export type InsertInvoiceToken = z.infer<typeof insertInvoiceTokenSchema>;

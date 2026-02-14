@@ -1,0 +1,88 @@
+Best new functions to add (ranked)
+1) Auto monthly invoice generation (bulk)
+Right now dashboard has a placeholder for this (TODO). Add a function that auto-creates invoices for all active clients each month in one click (or by scheduler).
+Why it helps: saves hours every month.
+
+2) Payment reminders (WhatsApp + Email automation)
+You already have invoice sharing in invoice tab; next step is automatic reminders for unpaid/partial invoices at set days (e.g., 3rd, 7th, 15th).
+Why it helps: improves collection rate.
+
+3) Recurring billing templates per client
+You already track month/year billing records and monthly service charge. Add recurring billing profiles (amount, due date, tax, discount) so each cycle is auto-prepared.
+Why it helps: less manual billing data entry.
+
+4) Real database persistence (Postgres) instead of memory
+Current storage is in-memory (MemStorage), so data is not durable across restarts. Add DB-backed storage implementation and switch runtime storage to it.
+Why it helps: production-safe reliability.
+
+5) Authentication + multi-user roles
+You already have passport, passport-local, and session-store dependencies but no active auth flow in routes. Add login/logout and roles (owner, accountant, manager).
+Why it helps: security + team usage.
+
+6) Invoice due dates + late fee rules
+Billing has month/year/isPaid/paidAmount and notes, but no due-date/late-fee engine yet. Add automatic late fee and “days overdue” status. 
+Why it helps: encourages timely payment.
+
+7) Payment method tracking + reconciliation dashboard
+You already store paymentMethod and paidDate in billing. Build reconciliation view:
+
+paid by method (bank/cash/stripe),
+
+pending aging buckets (0-15 / 16-30 / 30+ days).
+Why it helps: better financial control.
+
+8) Campaign performance ingestion + ROI scoring
+Campaign schema already has performance JSON and platform/budget fields. Add connectors or manual metric import and auto ROI score per client.
+Why it helps: proves your value to clients.
+
+9) Task/reminder system tied to client notes
+You already have note type/priority/dueDate/isCompleted. Add “Today’s tasks” view + overdue reminder notifications.
+Why it helps: follow-ups become systematic.
+
+10) File management upgrades
+You have upload/list/delete with metadata. Add:
+
+secure file download endpoint,
+
+file categories (contract/invoice/creative),
+
+preview links and expiration tokens.
+Why it helps: better document organization.
+
+11) Public invoice improvements
+Public invoice route is already available. Add:
+
+signed token in URL,
+
+optional expiry,
+
+“Pay now” button (Stripe/PayPal link).
+Why it helps: faster and safer payment collection.
+
+12) Data import tools (CSV clients + billing import)
+You already support export CSV and settings JSON import/export patterns. Add import flows for clients and billing history with validation preview.
+Why it helps: easier migration from spreadsheets.
+
+Suggested roadmap (practical)
+Phase 1 (highest ROI, quick)
+Bulk monthly invoice generation
+
+Auto reminders
+
+Due dates + overdue aging
+
+DB persistence
+
+Phase 2
+Auth + roles
+
+Payment reconciliation dashboard
+
+Import tools
+
+Phase 3
+Campaign ROI ingestion
+
+Advanced file/doc workflow
+
+Public invoice tokens + pay links

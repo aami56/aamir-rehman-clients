@@ -1,15 +1,18 @@
-import { 
-  clients, billing, campaigns, clientNotes, clientFiles, activityLog,
+import { eq, desc, ilike, or, and, sql } from "drizzle-orm";
+import { db } from "./db";
+import {
+  clients, billing, campaigns, clientNotes, clientFiles, activityLog, users, invoiceTokens,
   type Client, type InsertClient,
   type Billing, type InsertBilling,
   type Campaign, type InsertCampaign,
   type ClientNote, type InsertClientNote,
   type ClientFile, type InsertClientFile,
-  type ActivityLog, type InsertActivityLog
+  type ActivityLog, type InsertActivityLog,
+  type User, type InsertUser,
+  type InvoiceToken, type InsertInvoiceToken
 } from "@shared/schema";
 
 export interface IStorage {
-  // Client methods
   getClients(): Promise<Client[]>;
   getClient(id: number): Promise<Client | undefined>;
   createClient(client: InsertClient): Promise<Client>;
@@ -17,516 +20,536 @@ export interface IStorage {
   deleteClient(id: number): Promise<boolean>;
   searchClients(query: string): Promise<Client[]>;
 
-  // Billing methods
   getBillingByClient(clientId: number): Promise<Billing[]>;
   getBilling(id: number): Promise<Billing | undefined>;
   createBilling(billing: InsertBilling): Promise<Billing>;
   updateBilling(id: number, billing: Partial<InsertBilling>): Promise<Billing | undefined>;
   deleteBilling(id: number): Promise<boolean>;
-  getBillingStats(): Promise<{ totalRevenue: number; pendingAmount: number; paidCount: number; unpaidCount: number; }>;
+  getBillingStats(): Promise<{ totalRevenue: number; pendingAmount: number; paidCount: number; unpaidCount: number }>;
+  getAllBilling(): Promise<Billing[]>;
+  generateMonthlyInvoices(month: number, year: number, dueDays?: number): Promise<{ created: number; skipped: number; details: string[] }>;
 
-  // Campaign methods
   getCampaignsByClient(clientId: number): Promise<Campaign[]>;
   getCampaign(id: number): Promise<Campaign | undefined>;
   createCampaign(campaign: InsertCampaign): Promise<Campaign>;
   updateCampaign(id: number, campaign: Partial<InsertCampaign>): Promise<Campaign | undefined>;
   deleteCampaign(id: number): Promise<boolean>;
+  getAllCampaigns(): Promise<Campaign[]>;
 
-  // Notes methods
   getNotesByClient(clientId: number): Promise<ClientNote[]>;
   createNote(note: InsertClientNote): Promise<ClientNote>;
   updateNote(id: number, note: Partial<InsertClientNote>): Promise<ClientNote | undefined>;
   deleteNote(id: number): Promise<boolean>;
+  getTodaysTasks(): Promise<(ClientNote & { clientName?: string | null })[]>;
+  getOverdueTasks(): Promise<(ClientNote & { clientName?: string | null })[]>;
 
-  // Files methods
   getFilesByClient(clientId: number): Promise<ClientFile[]>;
   createFile(file: InsertClientFile): Promise<ClientFile>;
   deleteFile(id: number): Promise<boolean>;
+  getFile(id: number): Promise<ClientFile | undefined>;
 
-  // Activity log methods
   getActivityByClient(clientId: number): Promise<ActivityLog[]>;
   createActivity(activity: InsertActivityLog): Promise<ActivityLog>;
+
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+
+  createInvoiceToken(token: InsertInvoiceToken): Promise<InvoiceToken>;
+  getInvoiceToken(token: string): Promise<InvoiceToken | undefined>;
+
+  getAgingReport(): Promise<{ bucket: string; count: number; total: number }[]>;
+  getReconciliation(): Promise<{ method: string; count: number; total: number }[]>;
 }
 
-export class MemStorage implements IStorage {
-  private clients: Map<number, Client>;
-  private billing: Map<number, Billing>;
-  private campaigns: Map<number, Campaign>;
-  private clientNotes: Map<number, ClientNote>;
-  private clientFiles: Map<number, ClientFile>;
-  private activityLog: Map<number, ActivityLog>;
-  private currentId: number;
-
-  constructor() {
-    this.clients = new Map();
-    this.billing = new Map();
-    this.campaigns = new Map();
-    this.clientNotes = new Map();
-    this.clientFiles = new Map();
-    this.activityLog = new Map();
-    this.currentId = 1;
-
-    // Initialize with some sample data
-    this.initializeSampleData();
-  }
-
-  private initializeSampleData() {
-    const sampleClients: InsertClient[] = [
-      {
-        name: "TechFlow Solutions",
-        email: "contact@techflow.com",
-        phone: "+1-555-0123",
-        website: "https://techflow.com",
-        industry: "Software Development",
-        googleAdAccountId: "123-456-7890",
-        monthlyServiceCharge: "1500.00",
-        status: "active",
-        contactPerson: "John Smith",
-        address: "123 Tech Street, Silicon Valley, CA 94000",
-        notes: "High-value client with consistent growth"
-      },
-      {
-        name: "Digital Marketing Pro",
-        email: "info@digitalmarketingpro.com",
-        phone: "+1-555-0124",
-        website: "https://digitalmarketingpro.com",
-        industry: "E-commerce",
-        googleAdAccountId: "123-456-7891",
-        monthlyServiceCharge: "2200.00",
-        status: "overdue",
-        contactPerson: "Sarah Johnson",
-        address: "456 Commerce Ave, New York, NY 10001",
-        notes: "Payment overdue - follow up required"
-      },
-      {
-        name: "HealthTech Innovations",
-        email: "hello@healthtech.com",
-        phone: "+1-555-0125",
-        website: "https://healthtech.com",
-        industry: "Healthcare",
-        googleAdAccountId: "123-456-7892",
-        monthlyServiceCharge: "3500.00",
-        status: "active",
-        contactPerson: "Dr. Michael Brown",
-        address: "789 Medical Plaza, Boston, MA 02101",
-        notes: "Premium client with multiple campaign verticals"
-      }
-    ];
-
-    sampleClients.forEach(client => {
-      this.createClient(client);
-    });
-  }
-
+export class DatabaseStorage implements IStorage {
   async getClients(): Promise<Client[]> {
-    return Array.from(this.clients.values());
+    return await db.select().from(clients).orderBy(desc(clients.createdAt));
   }
 
   async getClient(id: number): Promise<Client | undefined> {
-    return this.clients.get(id);
+    const [client] = await db.select().from(clients).where(eq(clients.id, id));
+    return client;
   }
 
   async createClient(insertClient: InsertClient): Promise<Client> {
-    const id = this.currentId++;
-    const now = new Date();
-    const client: Client = {
-      ...insertClient,
-      id,
-      createdAt: now,
-      updatedAt: now,
-      status: insertClient.status || "active",
-      website: insertClient.website || null,
-      industry: insertClient.industry || null,
-      googleAdAccountId: insertClient.googleAdAccountId || null,
-      contactPerson: insertClient.contactPerson || null,
-      address: insertClient.address || null,
-      notes: insertClient.notes || null,
-    };
-    this.clients.set(id, client);
-
-    // Log activity
+    const [client] = await db.insert(clients).values(insertClient).returning();
     await this.createActivity({
-      clientId: id,
+      clientId: client.id,
       action: "client_created",
       description: `Client ${client.name} was created`,
       entityType: "client",
-      entityId: id,
-      metadata: null
+      entityId: client.id,
+      metadata: null,
     });
-
     return client;
   }
 
   async updateClient(id: number, updateData: Partial<InsertClient>): Promise<Client | undefined> {
-    const client = this.clients.get(id);
-    if (!client) return undefined;
-
-    const updatedClient: Client = {
-      ...client,
-      ...updateData,
-      updatedAt: new Date(),
-    };
-    this.clients.set(id, updatedClient);
-
-    // Log activity
-    await this.createActivity({
-      clientId: id,
-      action: "client_updated",
-      description: `Client ${updatedClient.name} was updated`,
-      entityType: "client",
-      entityId: id,
-      metadata: updateData
-    });
-
-    return updatedClient;
+    const [client] = await db
+      .update(clients)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(clients.id, id))
+      .returning();
+    if (client) {
+      await this.createActivity({
+        clientId: id,
+        action: "client_updated",
+        description: `Client ${client.name} was updated`,
+        entityType: "client",
+        entityId: id,
+        metadata: updateData,
+      });
+    }
+    return client;
   }
 
   async deleteClient(id: number): Promise<boolean> {
-    const client = this.clients.get(id);
+    const client = await this.getClient(id);
     if (!client) return false;
-
-    this.clients.delete(id);
-    
-    // Log activity
-    await this.createActivity({
-      clientId: id,
-      action: "client_deleted",
-      description: `Client ${client.name} was deleted`,
-      entityType: "client",
-      entityId: id,
-      metadata: null
-    });
-
+    await db.delete(activityLog).where(eq(activityLog.clientId, id));
+    await db.delete(clientNotes).where(eq(clientNotes.clientId, id));
+    await db.delete(clientFiles).where(eq(clientFiles.clientId, id));
+    await db.delete(campaigns).where(eq(campaigns.clientId, id));
+    await db.delete(billing).where(eq(billing.clientId, id));
+    await db.delete(clients).where(eq(clients.id, id));
     return true;
   }
 
   async searchClients(query: string): Promise<Client[]> {
-    const lowercaseQuery = query.toLowerCase();
-    return Array.from(this.clients.values()).filter(client =>
-      client.name.toLowerCase().includes(lowercaseQuery) ||
-      client.email.toLowerCase().includes(lowercaseQuery) ||
-      client.industry?.toLowerCase().includes(lowercaseQuery) ||
-      client.contactPerson?.toLowerCase().includes(lowercaseQuery)
+    const pattern = `%${query}%`;
+    return await db.select().from(clients).where(
+      or(
+        ilike(clients.name, pattern),
+        ilike(clients.email, pattern),
+        ilike(clients.industry, pattern),
+        ilike(clients.contactPerson, pattern)
+      )
     );
   }
 
   async getBillingByClient(clientId: number): Promise<Billing[]> {
-    return Array.from(this.billing.values()).filter(b => b.clientId === clientId);
+    return await db.select().from(billing).where(eq(billing.clientId, clientId)).orderBy(desc(billing.year), desc(billing.month));
   }
 
   async getBilling(id: number): Promise<Billing | undefined> {
-    return this.billing.get(id);
+    const [bill] = await db.select().from(billing).where(eq(billing.id, id));
+    return bill;
   }
 
   async createBilling(insertBilling: InsertBilling): Promise<Billing> {
-    const id = this.currentId++;
-    const billing: Billing = {
-      ...insertBilling,
-      id,
-      createdAt: new Date(),
-      isPaid: insertBilling.isPaid ?? false,
-      paidDate: insertBilling.paidDate || null,
-      paymentMethod: insertBilling.paymentMethod || null,
-      invoiceNumber: insertBilling.invoiceNumber || null,
-      notes: insertBilling.notes || null,
-    };
-    this.billing.set(id, billing);
-
-    // Log activity
+    const [bill] = await db.insert(billing).values(insertBilling).returning();
     await this.createActivity({
-      clientId: billing.clientId,
+      clientId: bill.clientId,
       action: "billing_created",
-      description: `Billing record created for ${billing.month}/${billing.year}`,
+      description: `Billing record created for ${bill.month}/${bill.year}`,
       entityType: "billing",
-      entityId: id,
-      metadata: null
+      entityId: bill.id,
+      metadata: null,
     });
-
-    return billing;
+    return bill;
   }
 
   async updateBilling(id: number, updateData: Partial<InsertBilling>): Promise<Billing | undefined> {
-    const billing = this.billing.get(id);
-    if (!billing) return undefined;
-
-    const updatedBilling: Billing = {
-      ...billing,
-      ...updateData,
-    };
-    this.billing.set(id, updatedBilling);
-
-    // Log activity
-    await this.createActivity({
-      clientId: billing.clientId,
-      action: "billing_updated",
-      description: `Billing record updated for ${billing.month}/${billing.year}`,
-      entityType: "billing",
-      entityId: id,
-      metadata: updateData
-    });
-
-    return updatedBilling;
+    const [bill] = await db
+      .update(billing)
+      .set(updateData)
+      .where(eq(billing.id, id))
+      .returning();
+    if (bill) {
+      await this.createActivity({
+        clientId: bill.clientId,
+        action: "billing_updated",
+        description: `Billing record updated for ${bill.month}/${bill.year}`,
+        entityType: "billing",
+        entityId: id,
+        metadata: updateData,
+      });
+    }
+    return bill;
   }
 
   async deleteBilling(id: number): Promise<boolean> {
-    const billing = this.billing.get(id);
-    if (!billing) return false;
-
-    this.billing.delete(id);
-    
-    // Log activity
+    const bill = await this.getBilling(id);
+    if (!bill) return false;
+    await db.delete(billing).where(eq(billing.id, id));
     await this.createActivity({
-      clientId: billing.clientId,
+      clientId: bill.clientId,
       action: "billing_deleted",
-      description: `Billing record deleted for ${billing.month}/${billing.year}`,
+      description: `Billing record deleted for ${bill.month}/${bill.year}`,
       entityType: "billing",
       entityId: id,
-      metadata: null
+      metadata: null,
     });
-
     return true;
   }
 
-  async getBillingStats(): Promise<{ totalRevenue: number; pendingAmount: number; paidCount: number; unpaidCount: number; }> {
-    const allBilling = Array.from(this.billing.values());
+  async getBillingStats(): Promise<{ totalRevenue: number; pendingAmount: number; paidCount: number; unpaidCount: number }> {
     const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().getMonth() + 1;
-    
-    const currentYearBilling = allBilling.filter(b => b.year === currentYear);
-    
-    const totalRevenue = currentYearBilling
+    const allBilling = await db.select().from(billing).where(eq(billing.year, currentYear));
+
+    const totalRevenue = allBilling
       .filter(b => b.isPaid)
       .reduce((sum, b) => sum + parseFloat(b.amount), 0);
-    
-    const pendingAmount = currentYearBilling
+
+    const pendingAmount = allBilling
       .filter(b => !b.isPaid)
       .reduce((sum, b) => sum + parseFloat(b.amount), 0);
-    
-    const paidCount = currentYearBilling.filter(b => b.isPaid).length;
-    const unpaidCount = currentYearBilling.filter(b => !b.isPaid).length;
+
+    const paidCount = allBilling.filter(b => b.isPaid).length;
+    const unpaidCount = allBilling.filter(b => !b.isPaid).length;
 
     return { totalRevenue, pendingAmount, paidCount, unpaidCount };
   }
 
+  async getAllBilling(): Promise<Billing[]> {
+    return await db.select().from(billing).orderBy(desc(billing.year), desc(billing.month));
+  }
+
+  async generateMonthlyInvoices(month: number, year: number, dueDays: number = 15): Promise<{ created: number; skipped: number; details: string[] }> {
+    const activeClients = await db.select().from(clients).where(eq(clients.status, "active"));
+    let created = 0;
+    let skipped = 0;
+    const details: string[] = [];
+
+    for (const client of activeClients) {
+      const existing = await db.select().from(billing).where(
+        and(
+          eq(billing.clientId, client.id),
+          eq(billing.month, month),
+          eq(billing.year, year)
+        )
+      );
+
+      if (existing.length > 0) {
+        skipped++;
+        details.push(`Skipped ${client.name} - invoice already exists`);
+        continue;
+      }
+
+      const dueDate = new Date(year, month - 1, dueDays);
+      const invoiceNumber = `INV-${year}${String(month).padStart(2, '0')}${String(client.id).padStart(3, '0')}`;
+
+      await db.insert(billing).values({
+        clientId: client.id,
+        month,
+        year,
+        amount: client.monthlyServiceCharge,
+        isPaid: false,
+        paidAmount: "0",
+        invoiceNumber,
+        dueDate,
+      });
+
+      created++;
+      details.push(`Created invoice for ${client.name} - ${client.monthlyServiceCharge}`);
+    }
+
+    return { created, skipped, details };
+  }
+
   async getCampaignsByClient(clientId: number): Promise<Campaign[]> {
-    return Array.from(this.campaigns.values()).filter(c => c.clientId === clientId);
+    return await db.select().from(campaigns).where(eq(campaigns.clientId, clientId));
   }
 
   async getCampaign(id: number): Promise<Campaign | undefined> {
-    return this.campaigns.get(id);
+    const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, id));
+    return campaign;
   }
 
   async createCampaign(insertCampaign: InsertCampaign): Promise<Campaign> {
-    const id = this.currentId++;
-    const now = new Date();
-    const campaign: Campaign = {
-      ...insertCampaign,
-      id,
-      createdAt: now,
-      updatedAt: now,
-      status: insertCampaign.status || "active",
-      endDate: insertCampaign.endDate || null,
-      description: insertCampaign.description || null,
-      targetAudience: insertCampaign.targetAudience || null,
-      keywords: insertCampaign.keywords || null,
-      performance: insertCampaign.performance || {},
-    };
-    this.campaigns.set(id, campaign);
-
-    // Log activity
+    const [campaign] = await db.insert(campaigns).values(insertCampaign).returning();
     await this.createActivity({
       clientId: campaign.clientId,
       action: "campaign_created",
       description: `Campaign "${campaign.name}" was created`,
       entityType: "campaign",
-      entityId: id,
-      metadata: null
+      entityId: campaign.id,
+      metadata: null,
     });
-
     return campaign;
   }
 
   async updateCampaign(id: number, updateData: Partial<InsertCampaign>): Promise<Campaign | undefined> {
-    const campaign = this.campaigns.get(id);
-    if (!campaign) return undefined;
-
-    const updatedCampaign: Campaign = {
-      ...campaign,
-      ...updateData,
-      updatedAt: new Date(),
-    };
-    this.campaigns.set(id, updatedCampaign);
-
-    // Log activity
-    await this.createActivity({
-      clientId: campaign.clientId,
-      action: "campaign_updated",
-      description: `Campaign "${updatedCampaign.name}" was updated`,
-      entityType: "campaign",
-      entityId: id,
-      metadata: updateData
-    });
-
-    return updatedCampaign;
+    const [campaign] = await db
+      .update(campaigns)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(campaigns.id, id))
+      .returning();
+    if (campaign) {
+      await this.createActivity({
+        clientId: campaign.clientId,
+        action: "campaign_updated",
+        description: `Campaign "${campaign.name}" was updated`,
+        entityType: "campaign",
+        entityId: id,
+        metadata: updateData,
+      });
+    }
+    return campaign;
   }
 
   async deleteCampaign(id: number): Promise<boolean> {
-    const campaign = this.campaigns.get(id);
+    const campaign = await this.getCampaign(id);
     if (!campaign) return false;
-
-    this.campaigns.delete(id);
-    
-    // Log activity
+    await db.delete(campaigns).where(eq(campaigns.id, id));
     await this.createActivity({
       clientId: campaign.clientId,
       action: "campaign_deleted",
       description: `Campaign "${campaign.name}" was deleted`,
       entityType: "campaign",
       entityId: id,
-      metadata: null
+      metadata: null,
     });
-
     return true;
   }
 
+  async getAllCampaigns(): Promise<Campaign[]> {
+    return await db.select().from(campaigns).orderBy(desc(campaigns.createdAt));
+  }
+
   async getNotesByClient(clientId: number): Promise<ClientNote[]> {
-    return Array.from(this.clientNotes.values()).filter(n => n.clientId === clientId);
+    return await db.select().from(clientNotes).where(eq(clientNotes.clientId, clientId)).orderBy(desc(clientNotes.createdAt));
   }
 
   async createNote(insertNote: InsertClientNote): Promise<ClientNote> {
-    const id = this.currentId++;
-    const note: ClientNote = {
-      ...insertNote,
-      id,
-      createdAt: new Date(),
-      type: insertNote.type || null,
-      priority: insertNote.priority || null,
-      isCompleted: insertNote.isCompleted || null,
-      dueDate: insertNote.dueDate || null,
-    };
-    this.clientNotes.set(id, note);
-
-    // Log activity
+    const [note] = await db.insert(clientNotes).values(insertNote).returning();
     await this.createActivity({
       clientId: note.clientId,
       action: "note_created",
       description: `Note "${note.title}" was created`,
       entityType: "note",
-      entityId: id,
-      metadata: null
+      entityId: note.id,
+      metadata: null,
     });
-
     return note;
   }
 
   async updateNote(id: number, updateData: Partial<InsertClientNote>): Promise<ClientNote | undefined> {
-    const note = this.clientNotes.get(id);
-    if (!note) return undefined;
-
-    const updatedNote: ClientNote = {
-      ...note,
-      ...updateData,
-    };
-    this.clientNotes.set(id, updatedNote);
-
-    // Log activity
-    await this.createActivity({
-      clientId: note.clientId,
-      action: "note_updated",
-      description: `Note "${updatedNote.title}" was updated`,
-      entityType: "note",
-      entityId: id,
-      metadata: updateData
-    });
-
-    return updatedNote;
+    const [note] = await db
+      .update(clientNotes)
+      .set(updateData)
+      .where(eq(clientNotes.id, id))
+      .returning();
+    if (note) {
+      await this.createActivity({
+        clientId: note.clientId,
+        action: "note_updated",
+        description: `Note "${note.title}" was updated`,
+        entityType: "note",
+        entityId: id,
+        metadata: updateData,
+      });
+    }
+    return note;
   }
 
   async deleteNote(id: number): Promise<boolean> {
-    const note = this.clientNotes.get(id);
+    const [note] = await db.select().from(clientNotes).where(eq(clientNotes.id, id));
     if (!note) return false;
-
-    this.clientNotes.delete(id);
-    
-    // Log activity
+    await db.delete(clientNotes).where(eq(clientNotes.id, id));
     await this.createActivity({
       clientId: note.clientId,
       action: "note_deleted",
       description: `Note "${note.title}" was deleted`,
       entityType: "note",
       entityId: id,
-      metadata: null
+      metadata: null,
     });
-
     return true;
   }
 
+  async getTodaysTasks(): Promise<(ClientNote & { clientName?: string | null })[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const tasks = await db
+      .select({
+        id: clientNotes.id,
+        clientId: clientNotes.clientId,
+        title: clientNotes.title,
+        content: clientNotes.content,
+        type: clientNotes.type,
+        priority: clientNotes.priority,
+        isCompleted: clientNotes.isCompleted,
+        dueDate: clientNotes.dueDate,
+        createdAt: clientNotes.createdAt,
+        clientName: clients.name,
+      })
+      .from(clientNotes)
+      .leftJoin(clients, eq(clientNotes.clientId, clients.id))
+      .where(
+        and(
+          or(eq(clientNotes.type, "task"), eq(clientNotes.type, "reminder")),
+          eq(clientNotes.isCompleted, false)
+        )
+      )
+      .orderBy(clientNotes.dueDate);
+
+    return tasks.filter(t => {
+      if (!t.dueDate) return true;
+      return t.dueDate <= tomorrow;
+    });
+  }
+
+  async getOverdueTasks(): Promise<(ClientNote & { clientName?: string | null })[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const tasks = await db
+      .select({
+        id: clientNotes.id,
+        clientId: clientNotes.clientId,
+        title: clientNotes.title,
+        content: clientNotes.content,
+        type: clientNotes.type,
+        priority: clientNotes.priority,
+        isCompleted: clientNotes.isCompleted,
+        dueDate: clientNotes.dueDate,
+        createdAt: clientNotes.createdAt,
+        clientName: clients.name,
+      })
+      .from(clientNotes)
+      .leftJoin(clients, eq(clientNotes.clientId, clients.id))
+      .where(
+        and(
+          or(eq(clientNotes.type, "task"), eq(clientNotes.type, "reminder")),
+          eq(clientNotes.isCompleted, false)
+        )
+      )
+      .orderBy(clientNotes.dueDate);
+
+    return tasks.filter(t => t.dueDate && t.dueDate < today);
+  }
+
   async getFilesByClient(clientId: number): Promise<ClientFile[]> {
-    return Array.from(this.clientFiles.values()).filter(f => f.clientId === clientId);
+    return await db.select().from(clientFiles).where(eq(clientFiles.clientId, clientId)).orderBy(desc(clientFiles.createdAt));
   }
 
   async createFile(insertFile: InsertClientFile): Promise<ClientFile> {
-    const id = this.currentId++;
-    const file: ClientFile = {
-      ...insertFile,
-      id,
-      createdAt: new Date(),
-      description: insertFile.description || null,
-      uploadedBy: insertFile.uploadedBy || null,
-    };
-    this.clientFiles.set(id, file);
-
-    // Log activity
+    const [file] = await db.insert(clientFiles).values(insertFile).returning();
     await this.createActivity({
       clientId: file.clientId,
       action: "file_uploaded",
       description: `File "${file.originalName}" was uploaded`,
       entityType: "file",
-      entityId: id,
-      metadata: null
+      entityId: file.id,
+      metadata: null,
     });
-
     return file;
   }
 
   async deleteFile(id: number): Promise<boolean> {
-    const file = this.clientFiles.get(id);
+    const file = await this.getFile(id);
     if (!file) return false;
-
-    this.clientFiles.delete(id);
-    
-    // Log activity
+    await db.delete(clientFiles).where(eq(clientFiles.id, id));
     await this.createActivity({
       clientId: file.clientId,
       action: "file_deleted",
       description: `File "${file.originalName}" was deleted`,
       entityType: "file",
       entityId: id,
-      metadata: null
+      metadata: null,
     });
-
     return true;
   }
 
+  async getFile(id: number): Promise<ClientFile | undefined> {
+    const [file] = await db.select().from(clientFiles).where(eq(clientFiles.id, id));
+    return file;
+  }
+
   async getActivityByClient(clientId: number): Promise<ActivityLog[]> {
-    return Array.from(this.activityLog.values())
-      .filter(a => a.clientId === clientId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return await db.select().from(activityLog).where(eq(activityLog.clientId, clientId)).orderBy(desc(activityLog.createdAt));
   }
 
   async createActivity(insertActivity: InsertActivityLog): Promise<ActivityLog> {
-    const id = this.currentId++;
-    const activity: ActivityLog = {
-      ...insertActivity,
-      id,
-      createdAt: new Date(),
-      entityType: insertActivity.entityType || null,
-      entityId: insertActivity.entityId || null,
-      metadata: insertActivity.metadata || {},
-    };
-    this.activityLog.set(id, activity);
+    const [activity] = await db.insert(activityLog).values(insertActivity).returning();
     return activity;
+  }
+
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db.insert(users).values(insertUser).returning();
+    return user;
+  }
+
+  async createInvoiceToken(insertToken: InsertInvoiceToken): Promise<InvoiceToken> {
+    const [token] = await db.insert(invoiceTokens).values(insertToken).returning();
+    return token;
+  }
+
+  async getInvoiceToken(token: string): Promise<InvoiceToken | undefined> {
+    const [result] = await db.select().from(invoiceTokens).where(eq(invoiceTokens.token, token));
+    return result;
+  }
+
+  async getAgingReport(): Promise<{ bucket: string; count: number; total: number }[]> {
+    const unpaidBills = await db.select().from(billing).where(eq(billing.isPaid, false));
+    const now = new Date();
+
+    const buckets: Record<string, { count: number; total: number }> = {
+      "0-15 days": { count: 0, total: 0 },
+      "16-30 days": { count: 0, total: 0 },
+      "31-60 days": { count: 0, total: 0 },
+      "60+ days": { count: 0, total: 0 },
+    };
+
+    for (const bill of unpaidBills) {
+      const dueDate = bill.dueDate || new Date(bill.year, bill.month - 1, 15);
+      const daysOverdue = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)));
+      const amount = parseFloat(bill.amount) - parseFloat(bill.paidAmount || "0");
+
+      if (daysOverdue <= 15) {
+        buckets["0-15 days"].count++;
+        buckets["0-15 days"].total += amount;
+      } else if (daysOverdue <= 30) {
+        buckets["16-30 days"].count++;
+        buckets["16-30 days"].total += amount;
+      } else if (daysOverdue <= 60) {
+        buckets["31-60 days"].count++;
+        buckets["31-60 days"].total += amount;
+      } else {
+        buckets["60+ days"].count++;
+        buckets["60+ days"].total += amount;
+      }
+    }
+
+    return Object.entries(buckets).map(([bucket, data]) => ({
+      bucket,
+      ...data,
+    }));
+  }
+
+  async getReconciliation(): Promise<{ method: string; count: number; total: number }[]> {
+    const paidBills = await db.select().from(billing).where(eq(billing.isPaid, true));
+    const methods: Record<string, { count: number; total: number }> = {};
+
+    for (const bill of paidBills) {
+      const method = bill.paymentMethod || "Not specified";
+      if (!methods[method]) {
+        methods[method] = { count: 0, total: 0 };
+      }
+      methods[method].count++;
+      methods[method].total += parseFloat(bill.amount);
+    }
+
+    return Object.entries(methods).map(([method, data]) => ({
+      method,
+      ...data,
+    }));
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();

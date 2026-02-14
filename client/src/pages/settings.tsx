@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,10 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Settings as SettingsIcon, User, Bell, Palette, Database, DollarSign, Download, Upload, Moon, Sun, Monitor } from "lucide-react";
+import { Settings as SettingsIcon, User, Bell, Palette, Database, DollarSign, Download, Upload, Moon, Sun, Monitor, FileSpreadsheet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Client, Billing, Campaign } from "@shared/schema";
 
 export const CURRENCIES = [
@@ -175,6 +175,39 @@ export default function Settings() {
         variant: "destructive"
       });
     }
+  };
+
+  const handleCsvImport = (type: "clients" | "billing") => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv";
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const res = await fetch(`/api/import/${type}`, {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
+        const result = await res.json();
+        if (res.ok) {
+          toast({
+            title: "Import Complete",
+            description: `${result.imported} records imported${result.errors?.length ? `, ${result.errors.length} errors` : ''}`,
+          });
+        } else {
+          toast({ title: "Import Failed", description: result.message, variant: "destructive" });
+        }
+      } catch (error) {
+        toast({ title: "Import Failed", description: "Failed to import CSV file", variant: "destructive" });
+      }
+    };
+    input.click();
   };
 
   const handleImportData = () => {
@@ -443,6 +476,37 @@ export default function Settings() {
                   <p className="text-sm text-blue-700 dark:text-blue-300">
                     <strong>Tip:</strong> Regularly export your data to keep a backup. The export includes all your settings and client information.
                   </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5" />
+                  CSV Import
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label>Import Clients from CSV</Label>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                    Upload a CSV file with columns: name, email, phone, industry, monthly charge, status
+                  </p>
+                  <Button variant="outline" onClick={() => handleCsvImport("clients")}>
+                    <Upload className="w-4 h-4 mr-2" />
+                    Import Clients CSV
+                  </Button>
+                </div>
+                <div className="pt-4 border-t">
+                  <Label>Import Billing from CSV</Label>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                    Upload a CSV file with columns: client id, month, year, amount, is paid, payment method
+                  </p>
+                  <Button variant="outline" onClick={() => handleCsvImport("billing")}>
+                    <Upload className="w-4 h-4 mr-2" />
+                    Import Billing CSV
+                  </Button>
                 </div>
               </CardContent>
             </Card>
