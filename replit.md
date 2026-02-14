@@ -77,7 +77,9 @@ Preferred communication style: Simple, everyday language.
 - **TypeScript**: Full type checking across the stack
 
 ### Session Management
-- **connect-pg-simple**: PostgreSQL session store (available but session handling may need implementation)
+- **MemoryStore**: In-memory session store with automatic cleanup
+- **SESSION_SECRET**: Stored as Replit secret, auto-generated fallback for dev
+- **Security**: Secure cookies enabled in production, trust proxy configured for Replit's reverse proxy
 
 ### File Handling
 - **Multer**: Multipart form data parsing for file uploads

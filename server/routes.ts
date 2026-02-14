@@ -47,6 +47,12 @@ function requireRole(...roles: string[]) {
 export async function registerRoutes(app: Express): Promise<Server> {
   const SessionStore = MemoryStore(session);
 
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (isProduction) {
+    app.set('trust proxy', 1);
+  }
+
   app.use(session({
     secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
     resave: false,
@@ -55,7 +61,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     cookie: {
       maxAge: 24 * 60 * 60 * 1000,
       httpOnly: true,
-      secure: false,
+      secure: isProduction,
       sameSite: 'lax',
     },
   }));
